@@ -113,7 +113,7 @@ def run_epoch(phase, loader, model, loss_fn, optimizer, grad_scaler, device):
                 ht, zt, hf, zf = model(emg_window, fft_window)
                 ht_aug, zt_aug, hf_aug, zf_aug = model(time_aug, freq_aug)
                 total_loss, time_loss, freq_loss, consistency_loss = loss_fn(
-                    ht, ht_aug, hf, hf_aug, zt, zf, zt_aug, zf_aug
+                    ht, ht_aug, hf, hf_aug, zt, zf
                 )
 
             if is_train:
