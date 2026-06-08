@@ -17,7 +17,7 @@ from sklearn.svm import LinearSVC
 from sklearn.metrics import silhouette_score, f1_score
 
 from src.config import load_config
-from src.datasets.physiomio import TFCDataset
+from src.datasets.physiomio import PhysioMioEMGDataset
 from src.loss import TFCLoss
 from src.utils import (
     build_model,
@@ -49,7 +49,7 @@ def build_datasets(
         print(f"Computing fold statistics for fold {fold} from training data.")
         mean, std = None, None
 
-    train_dataset = TFCDataset(
+    train_dataset = PhysioMioEMGDataset(
         data_dir=data_dir,
         patient_ids=train_patients,
         mean=mean,
@@ -60,7 +60,7 @@ def build_datasets(
     if mean is None:
         save_fold_stats(fold_stats_path, train_dataset.mean, train_dataset.std)
 
-    test_dataset = TFCDataset(
+    test_dataset = PhysioMioEMGDataset(
         data_dir=data_dir,
         patient_ids=test_patients,
         mean=train_dataset.mean,
