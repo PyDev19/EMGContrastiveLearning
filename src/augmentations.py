@@ -8,7 +8,7 @@ class Augmentations:
         jitter_sigma=0.8,
         scale_sigma=1.1,
         mask_prob=0.5,
-        possible_num_segments=[2, 4, 5],
+        possible_num_segments=[2, 4, 8, 16],
         freq_perturb_ratio=0.25,
         freq_alpha=0.1,
     ):
