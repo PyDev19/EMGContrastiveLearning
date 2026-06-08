@@ -127,8 +127,6 @@ class TFCLoss(Module):
         hf_aug: torch.Tensor,
         zt: torch.Tensor,
         zf: torch.Tensor,
-        zt_aug: torch.Tensor,
-        zf_aug: torch.Tensor,
     ) -> torch.Tensor:
         """Calculates the total loss as a weighted sum of the contrastive losses for time and frequency representations and the consistency loss between them.
 

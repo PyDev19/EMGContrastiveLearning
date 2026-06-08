@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader, Dataset
 from src.augmentations import Augmentations
 
 
-class TFCDataset(Dataset):
+class PhysioMioEMGDataset(Dataset):
     def __init__(
         self,
         data_dir: pathlib.Path,
@@ -115,7 +115,7 @@ if __name__ == "__main__":
     data_dir = pathlib.Path(args.data_dir)
 
     patient_ids = list(range(1, 39))
-    dataset = TFCDataset(
+    dataset = PhysioMioEMGDataset(
         data_dir, patient_ids, window_size=512, stride=256, mask_prob=0.2
     )
 
