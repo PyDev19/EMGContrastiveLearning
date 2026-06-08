@@ -82,10 +82,10 @@ class TFCDataset(Dataset):
         end = window_info["end"]
 
         emg_window = self.emgs[trial_idx, :, start:end]  # (channels, window_size)
-        fft_window = fft(torch.from_numpy(emg_window)).abs()  # (channels, window_size)
         gesture = torch.tensor(self.gestures[trial_idx], dtype=torch.long)  # (1,)
 
         emg_window = torch.from_numpy(emg_window).float()
+        fft_window = torch.abs(fft(emg_window, dim=-1))  # (channels, window_size)
 
         time_augmented_window = self.augmentations.time_augment(emg_window.clone())
 
@@ -121,7 +121,7 @@ if __name__ == "__main__":
 
     print(f"Dataset length: {len(dataset)}")
 
-    dataloader = DataLoader(dataset, batch_size=64, pin_memory=True, num_workers=4)
+    dataloader = DataLoader(dataset, batch_size=64, pin_memory=True)
     print(f"Number of batches: {len(dataloader)}")
 
     start = time()
