@@ -10,7 +10,7 @@ import torch
 from omegaconf import OmegaConf
 from sklearn.metrics import accuracy_score, f1_score, recall_score
 from torch.nn import Module
-from models.transformer_cls_tfc import CLSTransformerTFC
+from src.models.transformer_cls_tfc import CLSTransformerTFC
 
 MODEL_REGISTRY = {
     "transformer_cls": CLSTransformerTFC,
