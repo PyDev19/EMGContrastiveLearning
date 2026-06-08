@@ -1,0 +1,36 @@
+{
+    "epochs": 100,
+    "train_batch_size": 2048,
+    "val_batch_size": 2048,
+    "dataset": {
+        "window_size": 512,
+        "stride": 256,
+        "jitter_sigma": 0.01,
+        "scale_sigma": 0.1,
+        "mask_prob": 0.1,
+        "freq_perturb_ratio": 0.1,
+        "freq_alpha": 0.1
+    },
+    "loss": {
+        "temperature": 0.2,
+        "margin": 1,
+        "contrastive_weight": 0.2
+    },
+    "optimizer": {
+        "lr": 0.0003,
+        "weight_decay": 0.0003,
+        "betas": [
+            0.9,
+            0.99
+        ]
+    },
+    "model": {
+        "name": "transformer_cls",
+        "time_dim": 512,
+        "hidden_dim": 256,
+        "latent_dim": 128,
+        "num_layers": 2,
+        "nheads": 2,
+        "dropout": 0.1
+    }
+}

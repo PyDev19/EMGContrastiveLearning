@@ -43,11 +43,11 @@ class BaseTrainConfig:
 class TransformerCLSConfig:
     name: str = "transformer_cls"
     time_dim: int = 512
-    hidden_dim: int = 256,
-    latent_dim: int = 128,
-    num_layers: int = 2,
-    nheads: int = 2,
-    dropout: float = 0.1,
+    hidden_dim: int = 256
+    latent_dim: int = 128
+    num_layers: int = 2
+    nheads: int = 2
+    dropout: float = 0.1
 
 @dataclass
 class TransformerCLSTrainConfig(BaseTrainConfig):
