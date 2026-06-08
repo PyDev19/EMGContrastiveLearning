@@ -22,6 +22,8 @@ class CLSTransformerTFC(Module):
         nheads: int = 2,
         dropout: float = 0.1,
     ):
+        super().__init__()
+        
         self.time_cls_token = Parameter(torch.zeros(1, 1, time_dim))
         self.time_encoder = TransformerEncoder(
             TransformerEncoderLayer(
