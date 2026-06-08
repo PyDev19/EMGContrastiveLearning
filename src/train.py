@@ -1,4 +1,5 @@
 import argparse
+import os
 import pathlib
 
 import torch
@@ -214,7 +215,9 @@ def eval_linear_probe(model, train_loader, test_loader, device, log_dir, epoch):
 def main():
     args = parse_args()
     config = load_config(args.config)
-
+    
+    os.makedirs(args.log_dir, exist_ok=True)
+    
     logs_dir = prepare_run_dirs(pathlib.Path(args.log_dir))
     print(f"Logs and checkpoints: {logs_dir}")
 
