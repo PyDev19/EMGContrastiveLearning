@@ -8,8 +8,7 @@ import h5py
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from scipy import stats
-from scipy.signal import resample, butter, iirnotch, sosfiltfilt, tf2sos
+from scipy.signal import butter, iirnotch, sosfiltfilt, tf2sos
 
 GROUPED_GESTURES_MAP = {
     "Rest": 0,
@@ -63,7 +62,11 @@ NOTCH_FREQ = 50  # hz
 RMS_WINDOW_MS = 100  # ms
 WORKERS = os.cpu_count() - 1  # cpu cores
 TIME_PER_TRIAL = 4  # seconds
+TIME_PER_WINDOW = 0.5  # seconds
 TARGET_LENGTH = FS * TIME_PER_TRIAL  # 8192 samples
+CHANNEL_COLS = [f"channel_{i:02d}" for i in range(1, 65)]  # channel_01 to channel_64
+WINDOW_SIZE = FS * TIME_PER_WINDOW  # samples
+STRIDE = WINDOW_SIZE // 2  # 50% overlap
 
 
 def bandpass_filter(emg, order=4) -> np.ndarray:
@@ -95,6 +98,10 @@ def rms_envelope(
 def load_patient_data(
     file_path: pathlib.Path, rms: bool, grouped_labels: bool, rms_window_size: float
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    emgs = []
+    gestures = []
+    fma_scores = []
+
     patient_data = pd.read_parquet(file_path)
     patient_data["gesture"] = patient_data["movement_type"].map(
         GROUPED_GESTURES_MAP if grouped_labels else UNGROUPED_GESTURES_MAP
@@ -102,57 +109,38 @@ def load_patient_data(
     patient_data.fillna({"fma": -1}, inplace=True)
     patient_data["fma"] = patient_data["fma"].map(FMA_MAP)
 
-    times = patient_data["time"].to_numpy()
-    time_diffs = np.abs(np.diff(times, prepend=times[0]))
-    boundary_mask = np.round(time_diffs) >= 4
-    trial_ids = np.cumsum(boundary_mask)
+    value_counts = patient_data["movement_type"].value_counts()
+    for movement_type, count in value_counts.items():
+        subset = patient_data.loc[
+            (patient_data["movement_type"] == movement_type)
+            & (patient_data["fma"] != 1)
+        ]
+        if subset.empty:
+            continue
 
-    unique, counts = np.unique(trial_ids, return_counts=True)
+        gestures.append(subset["gesture"].iloc[0])
+        fma_scores.append(subset["fma"].iloc[0])
+        emg = subset[CHANNEL_COLS].to_numpy(dtype="float32").T
 
-    channel_cols = [f"channel_{i:02d}" for i in range(1, 65)]
-    emg_array = patient_data[channel_cols].to_numpy(dtype=np.float32)
-    gestures_array = patient_data["gesture"].to_numpy()
-    fmas_array = patient_data["fma"].to_numpy()
+        emg = bandpass_filter(emg)
+        emg = notch_filter(emg)
 
-    all_trial_emgs = []
-    all_trial_gestures = []
-    all_trial_fmas = []
-
-    unique_trials = np.unique(trial_ids)
-
-    for tid in unique_trials:
-        mask = trial_ids == tid
-        trial_emg = emg_array[mask].T
-        trial_gestures = gestures_array[mask]
-        trial_fmas = fmas_array[mask]
-
-        trial_emg = bandpass_filter(trial_emg)
-        trial_emg = notch_filter(trial_emg)
-
-        # majority label for gesture and fma in the trial
-        trial_gesture = stats.mode(trial_gestures, keepdims=True).mode[0]
-        trial_fma = stats.mode(trial_fmas, keepdims=True).mode[0]
-
-        original_length = trial_emg.shape[1]
-        if original_length != TARGET_LENGTH:
-            trial_emg = resample(trial_emg, TARGET_LENGTH, axis=1)
+        if emg.shape[1] == 8193:
+            emg = emg[:, :TARGET_LENGTH]
 
         if rms:
-            trial_emg, n_windows, window_samples = rms_envelope(
-                trial_emg, window_ms=rms_window_size
+            emg, n_windows, window_samples = rms_envelope(
+                emg, fs=FS, window_ms=rms_window_size
             )
 
-        all_trial_emgs.append(trial_emg)
-        all_trial_gestures.append(trial_gesture)
-        all_trial_fmas.append(trial_fma)
+        for start in range(0, emg.shape[1] - WINDOW_SIZE + 1, STRIDE):
+            window = emg[:, start : start + WINDOW_SIZE]
+            if window.shape == (64, WINDOW_SIZE):
+                emgs.append(window)
+            else:
+                print(f"Window has shape {window.shape}, expected (64, {WINDOW_SIZE})")
 
-    return (
-        np.array(
-            all_trial_emgs
-        ),  # shape: (num_trials, 64, TARGET_LENGTH / RMS_WINDOW_MS)
-        np.array(all_trial_gestures),  # shape: (num_trials, 1)
-        np.array(all_trial_fmas),  # shape: (num_trials, 1)
-    )
+    return np.array(emgs), np.array(gestures), np.array(fma_scores)
 
 
 def load_all_patient_data(
@@ -168,8 +156,7 @@ def load_all_patient_data(
         rows = metadata[metadata["patient"] == f"patient{id}"]
     else:
         rows = metadata[
-            (metadata["patient"] == f"patient{id}")
-            & (metadata["arm_type"] == arm_type)
+            (metadata["patient"] == f"patient{id}") & (metadata["arm_type"] == arm_type)
         ]
 
     file_paths = rows["file_path"].tolist()
@@ -245,6 +232,24 @@ def save_patients(
                     )
                 pbar.update(1)
 
+def build_output_dir(base_dir: pathlib.Path, args) -> pathlib.Path:
+    parts = []
+    
+    parts.append("rms" if args.rms else "raw")
+    
+    if args.rms:
+        parts.append(f"rms{int(args.rms_window_size)}ms")
+    
+    parts.append(args.arm_type)
+    
+    parts.append("grouped" if args.grouped_labels else "ungrouped")
+    
+    window_ms = int((WINDOW_SIZE / FS) * 1000)
+    stride_ms = int((STRIDE / FS) * 1000)
+    parts.append(f"w{window_ms}ms_s{stride_ms}ms")
+
+    folder_name = "_".join(parts)
+    return base_dir / folder_name
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -289,15 +294,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     data_dir = pathlib.Path(args.data_dir)
-    if not args.rms:
-        output_dir = pathlib.Path(f"{args.output_dir}/raw/")
-    else:
-        output_dir = pathlib.Path(f"{args.output_dir}/rms_{args.rms_window_size}ms/")
-
-    if args.grouped_labels:
-        output_dir = output_dir.parent / f"{output_dir.stem}_grouped_labels"
-    else:
-        output_dir = output_dir.parent / f"{output_dir.stem}_ungrouped_labels"
+    output_dir = build_output_dir(pathlib.Path(args.output_dir), args)
 
     if output_dir.exists():
         shutil.rmtree(output_dir)
