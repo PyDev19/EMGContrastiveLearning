@@ -65,7 +65,7 @@ TIME_PER_TRIAL = 4  # seconds
 TIME_PER_WINDOW = 0.5  # seconds
 TARGET_LENGTH = FS * TIME_PER_TRIAL  # 8192 samples
 CHANNEL_COLS = [f"channel_{i:02d}" for i in range(1, 65)]  # channel_01 to channel_64
-WINDOW_SIZE = FS * TIME_PER_WINDOW  # samples
+WINDOW_SIZE = int(FS * TIME_PER_WINDOW)  # samples
 STRIDE = WINDOW_SIZE // 2  # 50% overlap
 
 
