@@ -18,8 +18,6 @@ class PhysioMioEMGDataset(Dataset):
         patient_ids: list[int],
         mean: np.ndarray = None,
         std: np.ndarray = None,
-        window_size: int = 4,
-        stride: int = 1,
         jitter_sigma: float = 0.8,
         scale_sigma: float = 1.1,
         mask_prob: float = 0.5,
@@ -52,18 +50,6 @@ class PhysioMioEMGDataset(Dataset):
 
         self.emgs = (self.emgs - self.mean) / self.std
 
-        self.window_index = []
-        for trial_idx in range(len(self.emgs)):
-            trial_length = self.emgs[trial_idx].shape[1]
-            for start_init in range(0, trial_length - window_size + 1, stride):
-                self.window_index.append(
-                    {
-                        "trial_idx": trial_idx,
-                        "start": start_init,
-                        "end": start_init + window_size,
-                    }
-                )
-
         self.augmentations = Augmentations(
             jitter_sigma=jitter_sigma,
             scale_sigma=scale_sigma,
@@ -73,16 +59,11 @@ class PhysioMioEMGDataset(Dataset):
         )
 
     def __len__(self):
-        return len(self.window_index)
+        return len(self.emgs)
 
     def __getitem__(self, index):
-        window_info = self.window_index[index]
-        trial_idx = window_info["trial_idx"]
-        start = window_info["start"]
-        end = window_info["end"]
-
-        emg_window = self.emgs[trial_idx, :, start:end]  # (channels, window_size)
-        gesture = torch.tensor(self.gestures[trial_idx], dtype=torch.long)  # (1,)
+        emg_window = self.emgs[index]  # (channels, window_size)
+        gesture = torch.tensor(self.gestures[index], dtype=torch.long)  # (1,)
 
         emg_window = torch.from_numpy(emg_window).float()
         fft_window = torch.abs(fft(emg_window, dim=-1))  # (channels, window_size)
