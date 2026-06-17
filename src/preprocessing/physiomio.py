@@ -96,7 +96,7 @@ def rms_envelope(
 
 
 def load_patient_data(
-    file_path: pathlib.Path, rms: bool, grouped_labels: bool, rms_window_size: float
+    file_path: pathlib.Path, grouped_labels: bool
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     emgs = []
     gestures = []
@@ -128,17 +128,7 @@ def load_patient_data(
         if emg.shape[1] == 8193:
             emg = emg[:, :TARGET_LENGTH]
 
-        if rms:
-            emg, n_windows, window_samples = rms_envelope(
-                emg, fs=FS, window_ms=rms_window_size
-            )
-
-        for start in range(0, emg.shape[1] - WINDOW_SIZE + 1, STRIDE):
-            window = emg[:, start : start + WINDOW_SIZE]
-            if window.shape == (64, WINDOW_SIZE):
-                emgs.append(window)
-            else:
-                print(f"Window has shape {window.shape}, expected (64, {WINDOW_SIZE})")
+        emgs.append(emg)
 
     return np.array(emgs), np.array(gestures), np.array(fma_scores)
 
@@ -148,9 +138,7 @@ def load_all_patient_data(
     data_dir: pathlib.Path,
     id: int,
     arm_type: str,
-    rms: bool,
     grouped_labels: bool,
-    rms_window_size: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     if arm_type == "both":
         rows = metadata[metadata["patient"] == f"patient{id}"]
@@ -167,7 +155,7 @@ def load_all_patient_data(
 
     for file_path in file_paths:
         patient_emg, patient_label, patient_fma = load_patient_data(
-            data_dir / file_path, rms, grouped_labels, rms_window_size
+            data_dir / file_path, grouped_labels
         )
 
         patient_emgs.append(patient_emg)
@@ -186,12 +174,10 @@ def save_patients(
     data_dir: pathlib.Path,
     output_dir: pathlib.Path,
     arm_type: str,
-    rms: bool,
     grouped_labels: bool,
-    rms_window_size: float,
 ):
     print(
-        f"Loading and preprocessing patient data with RMS={rms}, grouped_labels={grouped_labels}, rms_window_size={rms_window_size}ms ..."
+        f"Loading and preprocessing patient data with grouped_labels={grouped_labels} ..."
     )
 
     # Parallel load with a tqdm progress bar
@@ -203,9 +189,7 @@ def save_patients(
                 data_dir,
                 i,
                 arm_type,
-                rms,
                 grouped_labels,
-                rms_window_size,
             ): i
             for i in range(1, 49)
         }
@@ -232,24 +216,17 @@ def save_patients(
                     )
                 pbar.update(1)
 
+
 def build_output_dir(base_dir: pathlib.Path, args) -> pathlib.Path:
     parts = []
-    
-    parts.append("rms" if args.rms else "raw")
-    
-    if args.rms:
-        parts.append(f"rms{int(args.rms_window_size)}ms")
-    
+
     parts.append(args.arm_type)
-    
+
     parts.append("grouped" if args.grouped_labels else "ungrouped")
-    
-    window_ms = int((WINDOW_SIZE / FS) * 1000)
-    stride_ms = int((STRIDE / FS) * 1000)
-    parts.append(f"w{window_ms}ms_s{stride_ms}ms")
 
     folder_name = "_".join(parts)
     return base_dir / folder_name
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -275,20 +252,9 @@ if __name__ == "__main__":
         help="Type of arm for which to process data (default: impaired_arm).",
     )
     parser.add_argument(
-        "--rms",
-        action="store_true",
-        help="Whether to apply RMS envelope to the EMG data.",
-    )
-    parser.add_argument(
         "--grouped_labels",
         action="store_true",
         help="Whether to use grouped gesture labels (4 classes) instead of ungrouped (16 classes).",
-    )
-    parser.add_argument(
-        "--rms_window_size",
-        type=float,
-        default=RMS_WINDOW_MS,
-        help="RMS window size in milliseconds.",
     )
 
     args = parser.parse_args()
@@ -308,7 +274,5 @@ if __name__ == "__main__":
         data_dir,
         output_dir,
         args.arm_type,
-        args.rms,
         args.grouped_labels,
-        args.rms_window_size,
     )
