@@ -96,7 +96,7 @@ def rms_envelope(
 
 
 def load_patient_data(
-    file_path: pathlib.Path, grouped_labels: bool
+    file_path: pathlib.Path, grouped_labels: bool, include_fma_zero: bool = False
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     emgs = []
     gestures = []
@@ -107,13 +107,12 @@ def load_patient_data(
         GROUPED_GESTURES_MAP if grouped_labels else UNGROUPED_GESTURES_MAP
     )
     patient_data.fillna({"fma": -1}, inplace=True)
-    patient_data["fma"] = patient_data["fma"].map(FMA_MAP)
 
     value_counts = patient_data["movement_type"].value_counts()
     for movement_type, count in value_counts.items():
         subset = patient_data.loc[
             (patient_data["movement_type"] == movement_type)
-            & (patient_data["fma"] != 1)
+            & (patient_data["fma"] != 0 if not include_fma_zero else True)
         ]
         if subset.empty:
             continue
@@ -139,6 +138,7 @@ def load_all_patient_data(
     id: int,
     arm_type: str,
     grouped_labels: bool,
+    include_fma_zero: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     if arm_type == "both":
         rows = metadata[metadata["patient"] == f"patient{id}"]
@@ -155,7 +155,7 @@ def load_all_patient_data(
 
     for file_path in file_paths:
         patient_emg, patient_label, patient_fma = load_patient_data(
-            data_dir / file_path, grouped_labels
+            data_dir / file_path, grouped_labels, include_fma_zero
         )
 
         patient_emgs.append(patient_emg)
@@ -175,6 +175,7 @@ def save_patients(
     output_dir: pathlib.Path,
     arm_type: str,
     grouped_labels: bool,
+    include_fma_zero: bool = False,
 ):
     print(
         f"Loading and preprocessing patient data with grouped_labels={grouped_labels} ..."
@@ -190,6 +191,7 @@ def save_patients(
                 i,
                 arm_type,
                 grouped_labels,
+                include_fma_zero,
             ): i
             for i in range(1, 49)
         }
@@ -223,6 +225,7 @@ def build_output_dir(base_dir: pathlib.Path, args) -> pathlib.Path:
     parts.append(args.arm_type)
 
     parts.append("grouped" if args.grouped_labels else "ungrouped")
+    parts.append("include_fma_zero" if args.include_fma_zero else "exclude_fma_zero")
 
     folder_name = "_".join(parts)
     return base_dir / folder_name
@@ -256,6 +259,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Whether to use grouped gesture labels (4 classes) instead of ungrouped (16 classes).",
     )
+    parser.add_argument(
+        "--include_fma_zero",
+        action="store_true",
+        help="Whether to include trials with FMA score of 0.",
+    )
 
     args = parser.parse_args()
 
@@ -275,4 +283,5 @@ if __name__ == "__main__":
         output_dir,
         args.arm_type,
         args.grouped_labels,
+        args.include_fma_zero,
     )
