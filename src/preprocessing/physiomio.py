@@ -48,25 +48,14 @@ UNGROUPED_GESTURES_MAP = {
     "ForearmSupination": 15,
 }
 
-FMA_MAP = {
-    -1: 0,
-    0: 1,
-    1: 2,
-    2: 3,
-}
-
 FS = 2048  # hz
 LOW_CUTOFF = 20  # hz
 HIGH_CUTOFF = 500  # hz
 NOTCH_FREQ = 50  # hz
-RMS_WINDOW_MS = 100  # ms
 WORKERS = os.cpu_count() - 1  # cpu cores
 TIME_PER_TRIAL = 4  # seconds
-TIME_PER_WINDOW = 0.5  # seconds
 TARGET_LENGTH = FS * TIME_PER_TRIAL  # 8192 samples
 CHANNEL_COLS = [f"channel_{i:02d}" for i in range(1, 65)]  # channel_01 to channel_64
-WINDOW_SIZE = int(FS * TIME_PER_WINDOW)  # samples
-STRIDE = WINDOW_SIZE // 2  # 50% overlap
 
 
 def bandpass_filter(emg, order=4) -> np.ndarray:
@@ -78,21 +67,6 @@ def notch_filter(emg, quality_factor=30) -> np.ndarray:
     b, a = iirnotch(NOTCH_FREQ, quality_factor, fs=FS)
     sos = tf2sos(b, a)
     return sosfiltfilt(sos, emg, axis=1)
-
-
-def rms_envelope(
-    emg: np.ndarray, fs: int = FS, window_ms: float = RMS_WINDOW_MS
-) -> tuple[np.ndarray, int, int]:
-    window_samples = int(fs * window_ms / 1000)  # 2048 * 0.1 = 205 samples
-    n_channels, n_samples = emg.shape
-
-    n_windows = n_samples // window_samples
-    emg_trimmed = emg[:, : n_windows * window_samples]  # (C, n_windows * W)
-
-    emg_blocks = emg_trimmed.reshape(n_channels, n_windows, window_samples)
-    rms_emg = np.sqrt(np.mean(emg_blocks**2, axis=-1))  # (C, n_windows)
-
-    return rms_emg, n_windows, window_samples
 
 
 def load_patient_data(
@@ -126,6 +100,8 @@ def load_patient_data(
 
         if emg.shape[1] == 8193:
             emg = emg[:, :TARGET_LENGTH]
+        elif emg.shape[1] < TARGET_LENGTH:
+            continue  # Skip this trial if it's too short
 
         emgs.append(emg)
 
