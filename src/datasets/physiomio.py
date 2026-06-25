@@ -18,14 +18,18 @@ class PhysioMioEMGDataset(Dataset):
         patient_ids: list[int],
         mean: np.ndarray = None,
         std: np.ndarray = None,
-        jitter_sigma: float = 0.8,
-        scale_sigma: float = 1.1,
-        mask_prob: float = 0.5,
-        freq_perturb_ratio: float = 0.25,
-        freq_alpha: float = 0.1,
+        augmentations: Augmentations = None,
+        rms_window_samples: int = None,
+        rms_window_stride: int = None,
+        window_size: int = 512,
+        stride: int = 256,
     ):
         self.emgs = []
         self.gestures = []
+        self.rms_window_samples = rms_window_samples
+        self.rms_window_stride = rms_window_stride
+        self.window_size = window_size
+        self.stride = stride
 
         for patient_id in patient_ids:
             with h5py.File(data_dir / f"patient_{patient_id}.h5", "r") as f:
@@ -36,42 +40,71 @@ class PhysioMioEMGDataset(Dataset):
                 self.gestures.append(gestures)
 
         self.emgs = np.concatenate(self.emgs, axis=0)  # (trials, channels, time steps)
-        self.gestures = np.concatenate(self.gestures, axis=0)  # (trials, time steps)
+        self.gestures = np.concatenate(self.gestures, axis=0)  # (trials, 1)
 
-        if mean is None:
-            self.mean = self.emgs.mean(axis=(0, 2), keepdims=True)
-        else:
-            self.mean = mean
+        self.mean = mean
+        self.std = std
 
-        if std is None:
-            self.std = self.emgs.std(axis=(0, 2), keepdims=True) + 1e-8
-        else:
-            self.std = std
+        if mean is not None and std is not None:
+            self.mean = mean.reshape(1, -1, 1)
+            self.std = std.reshape(1, -1, 1)
+            self.emgs = (self.emgs - self.mean) / self.std
 
-        self.emgs = (self.emgs - self.mean) / self.std
+        self.augmentations = augmentations
 
-        self.augmentations = Augmentations(
-            jitter_sigma=jitter_sigma,
-            scale_sigma=scale_sigma,
-            mask_prob=mask_prob,
-            freq_perturb_ratio=freq_perturb_ratio,
-            freq_alpha=freq_alpha,
-        )
+        self.window_indices = self._calculate_window_indices()
 
     def __len__(self):
+        if self.window_indices is not None:
+            return len(self.window_indices)
         return len(self.emgs)
 
+    def _calculate_window_indices(self) -> list[dict[str, int]] | None:
+        window_index = []
+        for trial_idx in range(len(self.emgs)):
+            trial_length = self.emgs[trial_idx].shape[1]
+            for start_init in range(
+                0, trial_length - self.window_size + 1, self.stride
+            ):
+                window_index.append(
+                    {
+                        "trial_idx": trial_idx,
+                        "start": start_init,
+                        "end": start_init + self.window_size,
+                    }
+                )
+
+        return window_index if window_index else None
+
+    def _rms_window(self, window: torch.Tensor) -> torch.Tensor:
+        if self.rms_window_samples is None:
+            return window
+
+        blocks = window.unfold(-1, self.rms_window_samples, self.rms_window_stride)
+        return torch.sqrt(torch.mean(blocks**2, dim=-1))  # (channels, n_windows)
+
     def __getitem__(self, index):
-        emg_window = self.emgs[index]  # (channels, window_size)
-        gesture = torch.tensor(self.gestures[index], dtype=torch.long)  # (1,)
+        if self.window_indices is not None:
+            window_info = self.window_indices[index]
+            trial_idx = window_info["trial_idx"]
+            start = window_info["start"]
+            end = window_info["end"]
+
+            emg_window = self.emgs[trial_idx, :, start:end]  # (channels, window_size)
+            gesture = torch.tensor(self.gestures[trial_idx], dtype=torch.long)  # (1,)
+        else:
+            emg_window = self.emgs[index]  # (channels, time steps)
+            gesture = torch.tensor(self.gestures[index], dtype=torch.long)  # (1,)
 
         emg_window = torch.from_numpy(emg_window).float()
         fft_window = torch.abs(fft(emg_window, dim=-1))  # (channels, window_size)
+        emg_window = self._rms_window(emg_window)  # (channels, rms_windows)
 
-        time_augmented_window = self.augmentations.time_augment(emg_window.clone())
+        if self.augmentations is None:
+            return emg_window, fft_window, gesture
 
-        frequency_augmented_fft = self.augmentations.frequency_augment(
-            fft_window.clone()
+        time_augmented_window, frequency_augmented_fft = self.augmentations(
+            emg_window.clone(), fft_window.clone()
         )
 
         return (
@@ -95,9 +128,18 @@ if __name__ == "__main__":
     args = parser.parse_args()
     data_dir = pathlib.Path(args.data_dir)
 
-    patient_ids = list(range(1, 39))
+    patient_ids = list(range(1, 6))
+
+    augmentations = Augmentations()
+
     dataset = PhysioMioEMGDataset(
-        data_dir, patient_ids, window_size=512, stride=256, mask_prob=0.2
+        data_dir,
+        patient_ids,
+        window_size=32,
+        stride=16,
+        augmentations=augmentations,
+        rms_window_samples=10,
+        rms_window_stride=5
     )
 
     print(f"Dataset length: {len(dataset)}")
