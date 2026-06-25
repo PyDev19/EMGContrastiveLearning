@@ -138,7 +138,7 @@ class Augmentations:
         Returns:
             torch.Tensor: The augmented EMG window, with the same shape as the input.
         """
-        augmentations = [self._jitter, self._scale, self._permutation, self._mask]
+        augmentations = [self._jitter, self._scale, self._mask]
         np.random.shuffle(augmentations)
 
         applied = False
@@ -175,3 +175,6 @@ class Augmentations:
             emg_fft = augmentations[0](emg_fft)
 
         return emg_fft
+
+    def __call__(self, emg_window: torch.Tensor, emg_fft: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.time_augment(emg_window), self.frequency_augment(emg_fft)
