@@ -233,7 +233,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--grouped_labels",
         action="store_true",
-        help="Whether to use grouped gesture labels (4 classes) instead of ungrouped (16 classes).",
+        help="Whether to use grouped gesture labels (10 classes) instead of ungrouped (16 classes).",
     )
     parser.add_argument(
         "--include_fma_zero",
