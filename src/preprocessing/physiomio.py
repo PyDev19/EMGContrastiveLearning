@@ -1,14 +1,15 @@
 import argparse
-from concurrent.futures import ProcessPoolExecutor, as_completed
 import os
 import pathlib
 import shutil
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import h5py
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from scipy.signal import butter, iirnotch, sosfiltfilt, tf2sos
+
+from utils.signal_processing import bandpass_filter, notch_filter
 
 GROUPED_GESTURES_MAP = {
     "Rest": 0,
@@ -52,21 +53,10 @@ FS = 2048  # hz
 LOW_CUTOFF = 20  # hz
 HIGH_CUTOFF = 500  # hz
 NOTCH_FREQ = 50  # hz
-WORKERS = os.cpu_count() - 1  # cpu cores
+WORKERS = (os.cpu_count() or 2) - 1  # cpu cores
 TIME_PER_TRIAL = 4  # seconds
 TARGET_LENGTH = FS * TIME_PER_TRIAL  # 8192 samples
 CHANNEL_COLS = [f"channel_{i:02d}" for i in range(1, 65)]  # channel_01 to channel_64
-
-
-def bandpass_filter(emg, order=4) -> np.ndarray:
-    sos = butter(order, [LOW_CUTOFF, HIGH_CUTOFF], btype="band", fs=FS, output="sos")
-    return sosfiltfilt(sos, emg, axis=1)
-
-
-def notch_filter(emg, quality_factor=30) -> np.ndarray:
-    b, a = iirnotch(NOTCH_FREQ, quality_factor, fs=FS)
-    sos = tf2sos(b, a)
-    return sosfiltfilt(sos, emg, axis=1)
 
 
 def load_patient_data(
@@ -77,13 +67,13 @@ def load_patient_data(
     fma_scores = []
 
     patient_data = pd.read_parquet(file_path)
-    patient_data["gesture"] = patient_data["movement_type"].map(
+    patient_data["gesture"] = patient_data["movement_type"].replace(
         GROUPED_GESTURES_MAP if grouped_labels else UNGROUPED_GESTURES_MAP
     )
     patient_data.fillna({"fma": -1}, inplace=True)
 
     value_counts = patient_data["movement_type"].value_counts()
-    for movement_type, count in value_counts.items():
+    for movement_type in value_counts:
         subset = patient_data.loc[
             (patient_data["movement_type"] == movement_type)
             & (patient_data["fma"] != 0 if not include_fma_zero else True)
@@ -95,8 +85,10 @@ def load_patient_data(
         fma_scores.append(subset["fma"].iloc[0])
         emg = subset[CHANNEL_COLS].to_numpy(dtype="float32").T
 
-        emg = bandpass_filter(emg)
-        emg = notch_filter(emg)
+        emg = bandpass_filter(
+            emg, order=4, low_cutoff=LOW_CUTOFF, high_cutoff=HIGH_CUTOFF, fs=FS
+        )
+        emg = notch_filter(emg, quality_factor=30, notch_freq=NOTCH_FREQ, fs=FS)
 
         if emg.shape[1] == 8193:
             emg = emg[:, :TARGET_LENGTH]
