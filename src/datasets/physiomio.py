@@ -41,7 +41,7 @@ class PhysioMioDataset(Dataset):
 
                 self.emgs.append(emgs)
                 self.gestures.append(gestures)
-        
+
         print("Concatenating dataset and converting to tensor...")
         self.raw_emgs = torch.from_numpy(
             np.concatenate(self.emgs, axis=0)
@@ -60,7 +60,7 @@ class PhysioMioDataset(Dataset):
 
         print("Calculating sEMG window indicies...")
         self.window_indices = calculate_window_indices(
-            self.rms_emgs if self.rms_emgs else self.raw_emgs, **window_opts
+            self.rms_emgs if self.rms_emgs is not None else self.raw_emgs, **window_opts
         )
 
     def __len__(self):
@@ -77,7 +77,7 @@ class PhysioMioDataset(Dataset):
 
         emg_window = (
             self.rms_emgs[trial_idx, :, start:end]
-            if self.rms_emgs
+            if self.rms_emgs is not None
             else self.raw_emgs[trial_idx, :, start:end]
         )  # (channels, time_steps)
         gesture = self.gestures[trial_idx]  # (1,)
@@ -91,14 +91,14 @@ class PhysioMioDataset(Dataset):
         return emg_window, gesture
 
 
-if __name__ == "__main__":
+def main():
     import argparse
 
     from src.utils.registers import NORMALIZERS
 
     parser = argparse.ArgumentParser(description="Test Phsyio")
     parser.add_argument(
-        "--data_dir",
+        "--data",
         type=str,
         help="Directory containing the preprocessed patient data files in hdf5 format.",
         required=True,
@@ -114,6 +114,7 @@ if __name__ == "__main__":
         "--norm",
         type=str,
         required=True,
+        choices=NORMALIZERS.keys(),
         help="Which normalizer to use on the data",
     )
 
@@ -123,10 +124,72 @@ if __name__ == "__main__":
     augmentations = Augmentations()
 
     dataset = PhysioMioDataset(
-        pathlib.Path(args.data_dir),
+        pathlib.Path(args.data),
         args.patient_ids,
         normalizer=normalizer,
         augmentations=augmentations,
     )
 
-    print(*dataset[1])
+    print("\n=== Dataset summary ===")
+    print(f"Num trials: {len(dataset.raw_emgs)}")
+    print(f"Raw EMG shape: {tuple(dataset.raw_emgs.shape)}")
+    print(f"Num windows: {len(dataset)}")
+
+    print("\n=== Normalization sanity ===")
+    raw = dataset.raw_emgs
+    print(f"Per-channel mean (should be ~0 if z-scored): {raw.mean(dim=(0, 2))}")
+    print(f"Per-channel std  (should be ~1 if z-scored): {raw.std(dim=(0, 2))}")
+    print(
+        f"Any NaN: {torch.isnan(raw).any().item()}  Any Inf: {torch.isinf(raw).any().item()}"
+    )
+
+    print("\n=== Single-item check ===")
+    idx = 1
+    emg_window, gesture = dataset[idx]
+    print(f"emg_window shape: {tuple(emg_window.shape)}, dtype: {emg_window.dtype}")
+    print(f"gesture: {gesture}")
+    print(
+        f"emg_window mean/std/min/max: "
+        f"{emg_window.mean():.4f} / {emg_window.std():.4f} / "
+        f"{emg_window.min():.4f} / {emg_window.max():.4f}"
+    )
+
+    print("\n=== Augmentation sanity (confirm it actually changes data) ===")
+    window_info = dataset.window_indices[idx]
+    trial_idx, start, end = (
+        window_info["trial_idx"],
+        window_info["start"],
+        window_info["end"],
+    )
+    unaugmented = (
+        dataset.rms_emgs[trial_idx, :, start:end]
+        if dataset.rms_emgs is not None
+        else dataset.raw_emgs[trial_idx, :, start:end]
+    )
+    if dataset.augmentations is not None:
+        augmented = dataset.augmentations.time_augment(unaugmented.clone())
+        diff = (augmented - unaugmented).abs()
+        print(f"Mean abs diff after augmentation: {diff.mean():.6f}")
+        print(f"Max abs diff after augmentation:  {diff.max():.6f}")
+        if diff.mean() < 1e-6:
+            print(
+                "WARNING: augmentation produced (near-)identical output — check it's actually applying"
+            )
+    else:
+        print("No augmentations configured, skipping")
+
+    print("\n=== Batch-level check via DataLoader ===")
+    from torch.utils.data import DataLoader
+
+    loader = DataLoader(dataset, batch_size=8, shuffle=True)
+    batch_emgs, batch_gestures = next(iter(loader))
+    print(f"Batch emg shape: {tuple(batch_emgs.shape)}")
+    print(f"Batch gesture shape: {tuple(batch_gestures.shape)}")
+    print(
+        f"Batch any NaN: {torch.isnan(batch_emgs).any().item()}\nAny Inf: {torch.isinf(batch_emgs).any().item()}"
+    )
+    print(f"Unique gestures in batch: {torch.unique(batch_gestures).tolist()}")
+
+
+if __name__ == "__main__":
+    main()
