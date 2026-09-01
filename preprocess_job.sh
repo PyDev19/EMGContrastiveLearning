@@ -12,7 +12,7 @@ conda init bash
 source activate base
 conda activate meyerlab
 
-SRC=/groups/emeyers/ProjectBlueprint/
+SRC=/groups/emeyers/EMGConstrastiveLearning/
 
 cd ~/scratch/
 
