@@ -1,165 +1,132 @@
-import argparse
 import pathlib
-from time import time
+from typing import TypedDict
 
 import h5py
 import numpy as np
 import torch
-from torch.fft import fft
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data.dataset import Dataset
 
-from src.augmentations import Augmentations
+from utils.augmentations import Augmentations
+from utils.normalization import Normalizer
+from utils.signal_processing import calculate_window_indices, rms_transform
 
 
-class PhysioMioEMGDataset(Dataset):
+class WindowOpts(TypedDict):
+    size: int
+    stride: int
+
+
+class PhysioMioDataset(Dataset):
     def __init__(
         self,
         data_dir: pathlib.Path,
         patient_ids: list[int],
-        mean: np.ndarray = None,
-        std: np.ndarray = None,
-        augmentations: Augmentations = None,
-        rms_window_samples: int = None,
-        rms_window_stride: int = None,
-        window_size: int = 512,
-        stride: int = 256,
+        window_opts: WindowOpts | None = None,
+        rms_opts: WindowOpts | None = None,
+        normalizer: Normalizer | None = None,
+        augmentations: Augmentations | None = None,
     ):
+        if window_opts is None:
+            window_opts = {"size": 512, "stride": 256}
+
+        self.augmentations = augmentations
         self.emgs = []
         self.gestures = []
-        self.rms_window_samples = rms_window_samples
-        self.rms_window_stride = rms_window_stride
-        self.window_size = window_size
-        self.stride = stride
 
+        print("Loading patient data..")
         for patient_id in patient_ids:
             with h5py.File(data_dir / f"patient_{patient_id}.h5", "r") as f:
-                emgs = f["emgs"][:]
-                gestures = f["gestures"][:]
+                emgs = f["emgs"][:]  # pyright: ignore[reportIndexIssue]
+                gestures = f["gestures"][:]  # pyright: ignore[reportIndexIssue]
 
                 self.emgs.append(emgs)
                 self.gestures.append(gestures)
 
-        self.emgs = np.concatenate(self.emgs, axis=0)  # (trials, channels, time steps)
-        self.gestures = np.concatenate(self.gestures, axis=0)  # (trials, 1)
+        print("Concatenating dataset and converting to tensor...")
+        self.raw_emgs = torch.from_numpy(
+            np.concatenate(self.emgs, axis=0)
+        )  # (trials, channels, time steps)
+        self.gestures = torch.from_numpy(
+            np.concatenate(self.gestures, axis=0)
+        ).long()  # (trials, 1)
 
-        self.mean = mean
-        self.std = std
+        print(f"Normalizing sEMG signals with {normalizer.__class__}...")
+        self.raw_emgs = normalizer(self.raw_emgs) if normalizer else self.raw_emgs
 
-        if mean is not None and std is not None:
-            self.mean = mean.reshape(1, -1, 1)
-            self.std = std.reshape(1, -1, 1)
-            self.emgs = (self.emgs - self.mean) / self.std
+        self.rms_emgs = None
+        if rms_opts:
+            print("RMS norming sEMG signals...")
+            self.rms_emgs = rms_transform(self.raw_emgs, **rms_opts)
 
-        self.augmentations = augmentations
-
-        self.window_indices = self._calculate_window_indices()
+        print("Calculating sEMG window indicies...")
+        self.window_indices = calculate_window_indices(
+            self.rms_emgs if self.rms_emgs else self.raw_emgs, **window_opts
+        )
 
     def __len__(self):
         if self.window_indices is not None:
             return len(self.window_indices)
+
         return len(self.emgs)
 
-    def _calculate_window_indices(self) -> list[dict[str, int]] | None:
-        window_index = []
-        for trial_idx in range(len(self.emgs)):
-            trial_length = self.emgs[trial_idx].shape[1]
-            for start_init in range(
-                0, trial_length - self.window_size + 1, self.stride
-            ):
-                window_index.append(
-                    {
-                        "trial_idx": trial_idx,
-                        "start": start_init,
-                        "end": start_init + self.window_size,
-                    }
-                )
-
-        return window_index if window_index else None
-
-    def _rms_window(self, window: torch.Tensor) -> torch.Tensor:
-        if self.rms_window_samples is None:
-            return window
-
-        blocks = window.unfold(-1, self.rms_window_samples, self.rms_window_stride)
-        return torch.sqrt(torch.mean(blocks**2, dim=-1))  # (channels, n_windows)
-
     def __getitem__(self, index):
-        if self.window_indices is not None:
-            window_info = self.window_indices[index]
-            trial_idx = window_info["trial_idx"]
-            start = window_info["start"]
-            end = window_info["end"]
+        window_info = self.window_indices[index]
+        trial_idx = window_info["trial_idx"]
+        start = window_info["start"]
+        end = window_info["end"]
 
-            emg_window = self.emgs[trial_idx, :, start:end]  # (channels, window_size)
-            gesture = torch.tensor(self.gestures[trial_idx], dtype=torch.long)  # (1,)
-        else:
-            emg_window = self.emgs[index]  # (channels, time steps)
-            gesture = torch.tensor(self.gestures[index], dtype=torch.long)  # (1,)
+        emg_window = (
+            self.rms_emgs[trial_idx, :, start:end]
+            if self.rms_emgs
+            else self.raw_emgs[trial_idx, :, start:end]
+        )  # (channels, time_steps)
+        gesture = self.gestures[trial_idx]  # (1,)
 
-        emg_window = torch.from_numpy(emg_window).float()
-        fft_window = torch.abs(fft(emg_window, dim=-1))  # (channels, window_size)
-        emg_window = self._rms_window(emg_window)  # (channels, rms_windows)
+        emg_window = (
+            self.augmentations.time_augment(emg_window)
+            if self.augmentations
+            else emg_window
+        )  # (channels, time_steps)
 
-        if self.augmentations is None:
-            return emg_window, fft_window, gesture
-
-        time_augmented_window, frequency_augmented_fft = self.augmentations(
-            emg_window.clone(), fft_window.clone()
-        )
-
-        return (
-            emg_window,
-            fft_window,
-            time_augmented_window,
-            frequency_augmented_fft,
-            gesture,
-        )
+        return emg_window, gesture
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Test PhysioMioEMGDataset")
+    import argparse
+
+    from src.utils.registers import NORMALIZERS
+
+    parser = argparse.ArgumentParser(description="Test Phsyio")
     parser.add_argument(
         "--data_dir",
         type=str,
-        default="data/impaired_preprocessed",
-        help="Path to preprocessed data directory",
+        help="Directory containing the preprocessed patient data files in hdf5 format.",
+        required=True,
+    )
+    parser.add_argument(
+        "--patient_ids",
+        type=int,
+        nargs="+",
+        required=True,
+        description="Specific patients to load in the dataset",
+    )
+    parser.add_argument(
+        "--norm",
+        type=str,
+        required=True,
+        description="Which normalizer to use on the data",
     )
 
     args = parser.parse_args()
-    data_dir = pathlib.Path(args.data_dir)
 
-    patient_ids = list(range(1, 6))
-
+    normalizer = NORMALIZERS[args.norm]()
     augmentations = Augmentations()
 
-    dataset = PhysioMioEMGDataset(
-        data_dir,
-        patient_ids,
-        window_size=32,
-        stride=16,
+    dataset = PhysioMioDataset(
+        pathlib.Path(args.data_dir),
+        args.patient_ids,
+        normalizer=normalizer,
         augmentations=augmentations,
-        rms_window_samples=10,
-        rms_window_stride=5
     )
 
-    print(f"Dataset length: {len(dataset)}")
-
-    dataloader = DataLoader(dataset, batch_size=64, pin_memory=True)
-    print(f"Number of batches: {len(dataloader)}")
-
-    start = time()
-    for batch in dataloader:
-        (
-            emg_window,
-            fft_window,
-            time_augmented_window,
-            frequency_augmented_fft,
-            gesture,
-        ) = batch
-        print(f"EMG window shape: {emg_window.shape}")
-        print(f"Time-augmented window shape: {time_augmented_window.shape}")
-        print(f"EMG FFT shape: {fft_window.shape}")
-        print(f"Frequency-augmented FFT shape: {frequency_augmented_fft.shape}")
-        print(f"Gesture shape: {gesture.shape}")
-        print(f"Batch processing time: {time() - start:.4f} seconds")
-        break
+    print(*dataset[1])

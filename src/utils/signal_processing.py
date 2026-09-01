@@ -44,6 +44,6 @@ def calculate_window_indices(
     return window_index
 
 
-def rms_transform(signal: torch.Tensor, size: int = 0, stride: int = 0):
+def rms_transform(signal: torch.Tensor, size: int, stride: int):
     windows = signal.unfold(-1, size, stride)
     return torch.sqrt(torch.mean(windows**2, dim=-1))
