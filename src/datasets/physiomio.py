@@ -6,9 +6,9 @@ import numpy as np
 import torch
 from torch.utils.data.dataset import Dataset
 
-from utils.augmentations import Augmentations
-from utils.normalization import Normalizer
-from utils.signal_processing import calculate_window_indices, rms_transform
+from src.utils.augmentations import Augmentations
+from src.utils.normalization import Normalizer
+from src.utils.signal_processing import calculate_window_indices, rms_transform
 
 
 class WindowOpts(TypedDict):
@@ -41,7 +41,7 @@ class PhysioMioDataset(Dataset):
 
                 self.emgs.append(emgs)
                 self.gestures.append(gestures)
-
+        
         print("Concatenating dataset and converting to tensor...")
         self.raw_emgs = torch.from_numpy(
             np.concatenate(self.emgs, axis=0)
@@ -50,7 +50,7 @@ class PhysioMioDataset(Dataset):
             np.concatenate(self.gestures, axis=0)
         ).long()  # (trials, 1)
 
-        print(f"Normalizing sEMG signals with {normalizer.__class__}...")
+        print(f"Normalizing sEMG signals with {normalizer.__class__.__name__}...")
         self.raw_emgs = normalizer(self.raw_emgs) if normalizer else self.raw_emgs
 
         self.rms_emgs = None
@@ -108,13 +108,13 @@ if __name__ == "__main__":
         type=int,
         nargs="+",
         required=True,
-        description="Specific patients to load in the dataset",
+        help="Specific patients to load in the dataset",
     )
     parser.add_argument(
         "--norm",
         type=str,
         required=True,
-        description="Which normalizer to use on the data",
+        help="Which normalizer to use on the data",
     )
 
     args = parser.parse_args()

@@ -1,28 +1,12 @@
 from typing import TypedDict
 
-import numpy as np
 import torch
-from scipy.signal import butter, iirnotch, sosfiltfilt, tf2sos
 
 
 class WindowIndex(TypedDict):
     trial_idx: int
     start: int
     end: int
-
-
-def bandpass_filter(
-    emg, order=4, low_cutoff=20, high_cutoff=500, fs=2048
-) -> np.ndarray:
-    sos = butter(order, [low_cutoff, high_cutoff], btype="band", fs=fs, output="sos")
-    return sosfiltfilt(sos, emg, axis=1)
-
-
-def notch_filter(emg, quality_factor=30, notch_freq=50, fs=2048) -> np.ndarray:
-    b, a = iirnotch(notch_freq, quality_factor, fs=fs)
-    sos = tf2sos(b, a)
-    return sosfiltfilt(sos, emg, axis=1)
-
 
 def calculate_window_indices(
     signal: torch.Tensor, size: int, stride: int

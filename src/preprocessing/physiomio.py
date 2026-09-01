@@ -8,8 +8,8 @@ import h5py
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from scipy.signal import butter, iirnotch, sosfiltfilt, tf2sos
 
-from utils.signal_processing import bandpass_filter, notch_filter
 
 GROUPED_GESTURES_MAP = {
     "Rest": 0,
@@ -58,6 +58,18 @@ TIME_PER_TRIAL = 4  # seconds
 TARGET_LENGTH = FS * TIME_PER_TRIAL  # 8192 samples
 CHANNEL_COLS = [f"channel_{i:02d}" for i in range(1, 65)]  # channel_01 to channel_64
 
+def bandpass_filter(
+    emg, order=4, low_cutoff=20, high_cutoff=500, fs=2048
+) -> np.ndarray:
+    sos = butter(order, [low_cutoff, high_cutoff], btype="band", fs=fs, output="sos")
+    return sosfiltfilt(sos, emg, axis=1)
+
+
+def notch_filter(emg, quality_factor=30, notch_freq=50, fs=2048) -> np.ndarray:
+    b, a = iirnotch(notch_freq, quality_factor, fs=fs)
+    sos = tf2sos(b, a)
+    return sosfiltfilt(sos, emg, axis=1)
+
 
 def load_patient_data(
     file_path: pathlib.Path, grouped_labels: bool, include_fma_zero: bool = False
@@ -72,7 +84,7 @@ def load_patient_data(
     )
     patient_data.fillna({"fma": -1}, inplace=True)
 
-    value_counts = patient_data["movement_type"].value_counts()
+    value_counts = patient_data["movement_type"].value_counts().to_dict()
     for movement_type in value_counts:
         subset = patient_data.loc[
             (patient_data["movement_type"] == movement_type)
