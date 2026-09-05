@@ -29,11 +29,12 @@ class PhysioMioDataset(Dataset):
         if window_opts is None:
             window_opts = {"size": 512, "stride": 256}
 
+        self.rms_opts = rms_opts
         self.augmentations = augmentations
         self.emgs = []
         self.gestures = []
 
-        print("Loading patient data..")
+        print("Loading patient data...")
         for patient_id in patient_ids:
             with h5py.File(data_dir / f"patient_{patient_id}.h5", "r") as f:
                 emgs = f["emgs"][:]  # pyright: ignore[reportIndexIssue]
@@ -53,15 +54,8 @@ class PhysioMioDataset(Dataset):
         print(f"Normalizing sEMG signals with {normalizer.__class__.__name__}...")
         self.raw_emgs = normalizer(self.raw_emgs) if normalizer else self.raw_emgs
 
-        self.rms_emgs = None
-        if rms_opts:
-            print("RMS norming sEMG signals...")
-            self.rms_emgs = rms_transform(self.raw_emgs, **rms_opts)
-
         print("Calculating sEMG window indicies...")
-        self.window_indices = calculate_window_indices(
-            self.rms_emgs if self.rms_emgs is not None else self.raw_emgs, **window_opts
-        )
+        self.window_indices = calculate_window_indices(self.raw_emgs, **window_opts)
 
     def __len__(self):
         if self.window_indices is not None:
@@ -75,11 +69,7 @@ class PhysioMioDataset(Dataset):
         start = window_info["start"]
         end = window_info["end"]
 
-        emg_window = (
-            self.rms_emgs[trial_idx, :, start:end]
-            if self.rms_emgs is not None
-            else self.raw_emgs[trial_idx, :, start:end]
-        )  # (channels, time_steps)
+        emg_window = self.raw_emgs[trial_idx, :, start:end]  # (channels, time_steps)
         gesture = self.gestures[trial_idx]  # (1,)
 
         emg_window = (
@@ -87,6 +77,9 @@ class PhysioMioDataset(Dataset):
             if self.augmentations
             else emg_window
         )  # (channels, time_steps)
+
+        if self.rms_opts:
+            emg_window = rms_transform(emg_window, **self.rms_opts)
 
         return emg_window, gesture
 
@@ -161,11 +154,7 @@ def main():
         window_info["start"],
         window_info["end"],
     )
-    unaugmented = (
-        dataset.rms_emgs[trial_idx, :, start:end]
-        if dataset.rms_emgs is not None
-        else dataset.raw_emgs[trial_idx, :, start:end]
-    )
+    unaugmented = dataset.raw_emgs[trial_idx, :, start:end]
     if dataset.augmentations is not None:
         augmented = dataset.augmentations.time_augment(unaugmented.clone())
         diff = (augmented - unaugmented).abs()
