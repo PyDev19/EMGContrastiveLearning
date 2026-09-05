@@ -7,9 +7,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import h5py
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 from scipy.signal import butter, iirnotch, sosfiltfilt, tf2sos
-
+from tqdm import tqdm
 
 GROUPED_GESTURES_MAP = {
     "Rest": 0,
@@ -57,6 +56,7 @@ WORKERS = (os.cpu_count() or 2) - 1  # cpu cores
 TIME_PER_TRIAL = 4  # seconds
 TARGET_LENGTH = FS * TIME_PER_TRIAL  # 8192 samples
 CHANNEL_COLS = [f"channel_{i:02d}" for i in range(1, 65)]  # channel_01 to channel_64
+
 
 def bandpass_filter(
     emg, order=4, low_cutoff=20, high_cutoff=500, fs=2048
