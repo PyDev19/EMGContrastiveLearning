@@ -7,9 +7,7 @@ import numpy as np
 import torch
 from torch.utils.data.dataset import Dataset
 
-from src.utils.augmentations import Augmentations
-from src.utils.normalization import Normalizer
-from src.utils.signal_processing import calculate_window_indices, rms_transform
+from src.utils import Augmentations, Normalizer, calculate_window_indices, rms_transform
 
 
 class WindowOpts(TypedDict):
@@ -87,7 +85,7 @@ class PhysioMioDataset(Dataset):
 def main():
     import argparse
 
-    from src.utils.registers import NORMALIZERS
+    from src.utils import NORMALIZERS
 
     parser = argparse.ArgumentParser(description="Test Phsyio")
     parser.add_argument(
