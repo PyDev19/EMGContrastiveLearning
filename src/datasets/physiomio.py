@@ -1,5 +1,4 @@
 import pathlib
-from dataclasses import dataclass
 from typing import TypedDict
 
 import h5py
@@ -15,25 +14,28 @@ class WindowOpts(TypedDict):
     stride: int
 
 
-@dataclass(eq=False)
 class PhysioMioDataset(Dataset):
-    data_dir: pathlib.Path
-    patient_ids: list[int]
-    window_opts: WindowOpts | None = None
-    rms_opts: WindowOpts | None = None
-    normalizer: Normalizer | None = None
-    augmentations: Augmentations | None = None
+    def __init__(
+        self,
+        data_dir: pathlib.Path,
+        patient_ids: list[int],
+        window_opts: WindowOpts | None = None,
+        rms_opts: WindowOpts | None = None,
+        normalizer: Normalizer | None = None,
+        augmentations: Augmentations | None = None,
+    ):
+        self.augmentations = augmentations
+        self.rms_opts = rms_opts
 
-    def __post_init__(self):
-        if self.window_opts is None:
-            self.window_opts = {"size": 512, "stride": 256}
+        if window_opts is None:
+            window_opts = {"size": 512, "stride": 256}
 
         emgs = []
         gestures = []
 
         print("Loading patient data...")
-        for patient_id in self.patient_ids:
-            with h5py.File(self.data_dir / f"patient_{patient_id}.h5", "r") as f:
+        for patient_id in patient_ids:
+            with h5py.File(data_dir / f"patient_{patient_id}.h5", "r") as f:
                 emgs.append(f["emgs"][:])  # pyright: ignore[reportIndexIssue]
                 gestures.append(f["gestures"][:])  # pyright: ignore[reportIndexIssue]
 
@@ -45,15 +47,11 @@ class PhysioMioDataset(Dataset):
             np.concatenate(gestures, axis=0)
         ).long()  # (trials, 1)
 
-        print(f"Normalizing sEMG signals with {self.normalizer.__class__.__name__}...")
-        self.raw_emgs = (
-            self.normalizer(self.raw_emgs) if self.normalizer else self.raw_emgs
-        )
+        print(f"Normalizing sEMG signals with {normalizer.__class__.__name__}...")
+        self.raw_emgs = normalizer(self.raw_emgs) if normalizer else self.raw_emgs
 
         print("Calculating sEMG window indicies...")
-        self.window_indices = calculate_window_indices(
-            self.raw_emgs, **self.window_opts
-        )
+        self.window_indices = calculate_window_indices(self.raw_emgs, **window_opts)
 
     def __len__(self):
         if self.window_indices is not None:
@@ -71,13 +69,12 @@ class PhysioMioDataset(Dataset):
         gesture = self.gestures[trial_idx]  # (1,)
 
         emg_window = (
-            self.augmentations.time_augment(emg_window)
-            if self.augmentations
-            else emg_window
+            self.augmentations(emg_window) if self.augmentations else emg_window
         )  # (channels, time_steps)
 
-        if self.rms_opts:
-            emg_window = rms_transform(emg_window, **self.rms_opts)
+        emg_window = (
+            rms_transform(emg_window, **self.rms_opts) if self.rms_opts else emg_window
+        )
 
         return emg_window, gesture
 
