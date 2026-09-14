@@ -1,12 +1,7 @@
-from typing import TypedDict
-
 import torch
 
+from src.utils.types import WindowIndex
 
-class WindowIndex(TypedDict):
-    trial_idx: int
-    start: int
-    end: int
 
 def calculate_window_indices(
     signal: torch.Tensor, size: int, stride: int

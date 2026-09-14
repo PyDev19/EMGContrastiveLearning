@@ -1,17 +1,14 @@
 import pathlib
-from typing import TypedDict
 
 import h5py
 import numpy as np
 import torch
 from torch.utils.data.dataset import Dataset
 
-from src.utils import Augmentations, Normalizer, calculate_window_indices, rms_transform
-
-
-class WindowOpts(TypedDict):
-    size: int
-    stride: int
+from src.utils.augmentations import Augmentations
+from src.utils.normalization import Normalizer
+from src.utils.signal_processing import calculate_window_indices, rms_transform
+from src.utils.types import WindowOpts
 
 
 class PhysioMioDataset(Dataset):
