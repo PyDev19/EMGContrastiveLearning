@@ -22,8 +22,7 @@ class Augmentations:
     scale_sigma: float = 1.1
     mask_size: list = field(default_factory=lambda: [4, 32])
     mask_prob: float = 0.5
-    freq_perturb_ratio: float = 0.25
-    freq_alpha: float = 0.1
+    channel_dropout_prob: float = 0.1
 
     def jitter(self, emg_window: torch.Tensor) -> torch.Tensor:
         """Add random Gaussian noise to the input EMG window.
@@ -50,6 +49,26 @@ class Augmentations:
         factor = torch.normal(mean=1.0, std=self.scale_sigma, size=emg_window.shape)
         return emg_window * factor
 
+    def channel_dropout(self, emg_window: torch.Tensor) -> torch.Tensor:
+        """Randomly zero out entire channels for the full signal duration, simulating
+        electrode dropout/poor contact.
+
+        Args:
+            emg_window (torch.Tensor): The input EMG window, with shape (channel_dim, sequence_length).
+
+        Returns:
+            torch.Tensor: The channel-dropped EMG window, with the same shape as the input.
+        """
+
+        C, _ = emg_window.shape
+        num_drop = max(1, int(C * self.channel_dropout_prob))
+        drop_idx = torch.randperm(C)[:num_drop]
+
+        masked = emg_window.clone()
+        masked[drop_idx] = 0
+
+        return masked
+
     def patch_mask(self, emg_window: torch.Tensor) -> torch.Tensor:
         """Randomly mask out square patches of the input EMG window by setting them to zero. The masking is applied with a specified probability.
 
@@ -63,14 +82,14 @@ class Augmentations:
         C, T = emg_window.size()
         patch_height, patch_width = self.mask_size
 
-        # calculate the total number of patches
-        num_patches = (C // patch_height) * (T // patch_width)
-        masked_patches = int(num_patches * self.mask_prob)
-
         # calculate coordinates for all possible patches within [C, T]
         row_indices = torch.arange(0, C, patch_height)
         col_indices = torch.arange(0, T, patch_width)
         patches = [(i, j) for i in row_indices for j in col_indices]
+
+        # calculate the total number of patches
+        num_patches = len(patches)
+        masked_patches = int(num_patches * self.mask_prob)
 
         # select top masked_patches of random permutations of ints from 0 to num_patches-1
         patch_indices = torch.randperm(num_patches)[:masked_patches]
@@ -95,7 +114,7 @@ class Augmentations:
         Returns:
             torch.Tensor: The augmented EMG window, with the same shape as the input.
         """
-        augmentations = np.array([self.jitter, self.scale, self.patch_mask])
+        augmentations = np.array([self.jitter, self.scale, self.patch_mask, self.channel_dropout])
         np.random.shuffle(augmentations)
 
         applied = False
