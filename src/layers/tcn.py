@@ -1,5 +1,3 @@
-from dataclasses import dataclass
-
 import torch
 import torch.nn.functional as F
 from torch.nn import Conv1d, Dropout, Identity, Module, Sequential
@@ -7,52 +5,52 @@ from torch.nn import Conv1d, Dropout, Identity, Module, Sequential
 from src.utils import ACTIVATIONS, NORM_LAYERS
 
 
-@dataclass(eq=False)
 class TCNBlock(Module):
-    in_channels: int
-    out_channels: int
-    kernel_size: int
-    dilation: int
-    dropout: float = 0.2
-    activation: str = "relu"
-    norm: str = "batch"
-    groups: int = 8
-
-    def __post_init__(self):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        dilation: int,
+        dropout: float = 0.2,
+        activation: str = "relu",
+        norm: str = "batch",
+        groups: int = 8,
+    ):
         super().__init__()
 
-        self.padding = (self.kernel_size - 1) * self.dilation
+        self.padding = (kernel_size - 1) * dilation
 
-        self.activation = ACTIVATIONS[self.activation]()
-        self.dropout = Dropout(self.dropout)
+        self.activation = ACTIVATIONS[activation]()
+        self.dropout = Dropout(dropout)
 
         self.conv1 = Conv1d(
-            self.in_channels,
-            self.out_channels,
-            self.kernel_size,
-            dilation=self.dilation,
+            in_channels,
+            out_channels,
+            kernel_size,
+            dilation=dilation,
         )
         self.norm1 = (
-            NORM_LAYERS[self.norm](self.groups, self.out_channels)
-            if self.norm == "group"
-            else NORM_LAYERS[self.norm](self.out_channels)
+            NORM_LAYERS[norm](groups, out_channels)
+            if norm == "group"
+            else NORM_LAYERS[norm](out_channels)
         )
 
         self.conv2 = Conv1d(
-            self.out_channels,
-            self.out_channels,
-            self.kernel_size,
-            dilation=self.dilation,
+            out_channels,
+            out_channels,
+            kernel_size,
+            dilation=dilation,
         )
         self.norm2 = (
-            NORM_LAYERS[self.norm](self.groups, self.out_channels)
-            if self.norm == "group"
-            else NORM_LAYERS[self.norm](self.out_channels)
+            NORM_LAYERS[norm](groups, out_channels)
+            if norm == "group"
+            else NORM_LAYERS[norm](out_channels)
         )
 
         self.residual = (
-            Conv1d(self.in_channels, self.out_channels, kernel_size=1)
-            if self.in_channels != self.out_channels
+            Conv1d(in_channels, out_channels, kernel_size=1)
+            if in_channels != out_channels
             else Identity()
         )
 
