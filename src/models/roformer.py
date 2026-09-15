@@ -1,15 +1,12 @@
 import torch
 from torch.nn import (
-    Dropout,
     LayerNorm,
-    Linear,
     Module,
     ModuleList,
     Parameter,
-    Sequential,
 )
 
-from src.layers import DropPath, PatchEmbeddings, RotarySelfAttentionBlock
+from src.layers import MLP, DropPath, PatchEmbeddings, RotarySelfAttentionBlock
 from src.utils.registers import ACTIVATIONS
 from src.utils.types import ActivationName
 
@@ -18,20 +15,21 @@ class RotaryTransformerBlock(Module):
     def __init__(
         self,
         dim: int,
-        hidden_dim: int,
+        hidden_dims: list[int],
         num_heads: int,
         proj_drop_prob: float,
         attn_drop_prob: float,
         drop_path_prob: float,
         mlp_drop_prob: float,
-        mlp_activation: str = "gelu",
+        mlp_activation: ActivationName = "gelu",
         qkv_bias: bool = False,
     ):
         """Individual transformer block using RoPE self-attention and an MLP with residual connections.
 
         Args:
             dim (int): embedding dimension of the input and output of the block.
-            hidden_dim (int): hidden dimension of the MLP within the block.
+            hidden_dims (list[int]): hidden dimensions of the MLP within the block.
+                len(hidden_dims) determines the number of hidden layers in the MLP.
             num_heads (int): number of attention heads; must evenly divide dim.
             proj_drop_prob (float): dropout probability for the attention projection.
             attn_drop_prob (float): dropout probability for the attention weights.
@@ -55,12 +53,12 @@ class RotaryTransformerBlock(Module):
 
         self.norm2 = LayerNorm(dim)
 
-        self.mlp = Sequential(
-            Linear(dim, hidden_dim),
-            ACTIVATIONS[mlp_activation](),
-            Dropout(mlp_drop_prob),
-            Linear(hidden_dim, dim),
-            Dropout(mlp_drop_prob),
+        self.mlp = MLP(
+            input_dim=dim,
+            hidden_dims=hidden_dims,
+            output_dim=dim,
+            activation=ACTIVATIONS[mlp_activation](),
+            dropout=mlp_drop_prob,
         )
 
     def forward(
@@ -93,9 +91,9 @@ class RoFormerConstrastiveModel(Module):
         channels: int,
         patch_size: int,
         embed_dim: int,
-        hidden_dim: int,
+        hidden_dims: list[int],
         projection_dim: int,
-        projection_hidden_dim: int,
+        projection_hidden_dims: list[int],
         num_heads: int,
         num_layers: int,
         proj_drop_prob: float,
@@ -116,9 +114,11 @@ class RoFormerConstrastiveModel(Module):
             channels (int): number of input channels (C).
             patch_size (int): patch length along the time axis; must evenly divide time_steps.
             embed_dim (int): transformer hidden/embedding dimension.
-            hidden_dim (int): hidden dimension of each block's MLP.
+            hidden_dims (list[int]): hidden dimensions of each block's MLP.
+                len(hidden_dims) determines the number of hidden layers in the MLP.
             projection_dim (int): output dimension of the projection head.
-            projection_hidden_dim (int): hidden dimension of the projection head.
+            projection_hidden_dims (list[int]): hidden dimensions of the projection head.
+                len(projection_hidden_dims) determines the number of hidden layers in the projection head.
             num_heads (int): number of attention heads; must evenly divide embed_dim.
             num_layers (int): number of stacked RotaryTransformerBlocks.
             proj_drop_prob (float): dropout probability for the attention projection.
@@ -143,7 +143,7 @@ class RoFormerConstrastiveModel(Module):
             [
                 RotaryTransformerBlock(
                     dim=embed_dim,
-                    hidden_dim=hidden_dim,
+                    hidden_dims=hidden_dims,
                     num_heads=num_heads,
                     qkv_bias=qkv_bias,
                     proj_drop_prob=proj_drop_prob,
@@ -158,10 +158,12 @@ class RoFormerConstrastiveModel(Module):
 
         self.norm_layer = LayerNorm(embed_dim)
 
-        self.projection_head = Sequential(
-            Linear(embed_dim, projection_hidden_dim),
-            ACTIVATIONS[projection_activation](),
-            Linear(projection_hidden_dim, projection_dim),
+        self.projection_head = MLP(
+            input_dim=embed_dim,
+            hidden_dims=projection_hidden_dims,
+            output_dim=projection_dim,
+            activation=ACTIVATIONS[projection_activation](),
+            dropout=mlp_drop_prob,
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -203,7 +205,9 @@ if __name__ == "__main__":
         channels=64,
         embed_dim=256,
         patch_size=64,
-        hidden_dim=512,
+        hidden_dims=[512],
+        projection_hidden_dims=[256],
+        projection_dim=128,
         num_heads=4,
         num_layers=8,
         proj_drop_prob=0.3,
