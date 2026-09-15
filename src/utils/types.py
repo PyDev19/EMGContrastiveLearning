@@ -1,4 +1,6 @@
-from typing import TypedDict
+from typing import Literal, TypedDict
+
+ActivationName = Literal["relu", "gelu", "silu"]
 
 
 class WindowIndex(TypedDict):
@@ -6,7 +8,7 @@ class WindowIndex(TypedDict):
     start: int
     end: int
 
+
 class WindowOpts(TypedDict):
     size: int
     stride: int
-    

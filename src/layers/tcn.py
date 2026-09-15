@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 from torch.nn import Conv1d, Dropout, Identity, Module, Sequential
 
-from src.utils import ACTIVATIONS, NORM_LAYERS
+from src.utils.registers import ACTIVATIONS, NORM_LAYERS
 
 
 class TCNBlock(Module):
