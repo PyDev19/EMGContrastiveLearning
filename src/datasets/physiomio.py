@@ -7,6 +7,7 @@ from torch.utils.data.dataset import Dataset
 
 from src.utils.augmentations import Augmentations
 from src.utils.normalization import Normalizer
+from src.utils.registers import NORMALIZERS
 from src.utils.signal_processing import calculate_window_indices, rms_transform
 from src.utils.types import WindowOpts
 
@@ -65,7 +66,7 @@ class PhysioMioDataset(Dataset):
         emg_window = self.raw_emgs[trial_idx, :, start:end]  # (channels, time_steps)
         gesture = self.gestures[trial_idx]  # (1,)
 
-        emg_window = (
+        emg_window_aug = (
             self.augmentations(emg_window) if self.augmentations else emg_window
         )  # (channels, time_steps)
 
@@ -73,13 +74,11 @@ class PhysioMioDataset(Dataset):
             rms_transform(emg_window, **self.rms_opts) if self.rms_opts else emg_window
         )
 
-        return emg_window, gesture
+        return emg_window, emg_window_aug, gesture
 
 
 def main():
     import argparse
-
-    from src.utils import NORMALIZERS
 
     parser = argparse.ArgumentParser(description="Test Phsyio")
     parser.add_argument(
@@ -130,7 +129,7 @@ def main():
 
     print("\n=== Single-item check ===")
     idx = 1
-    emg_window, gesture = dataset[idx]
+    emg_window, emg_aug, gesture = dataset[idx]
     print(f"emg_window shape: {tuple(emg_window.shape)}, dtype: {emg_window.dtype}")
     print(f"gesture: {gesture}")
     print(

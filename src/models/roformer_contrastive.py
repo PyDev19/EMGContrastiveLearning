@@ -44,8 +44,8 @@ class RotaryTransformerBlock(Module):
             dim=dim,
             num_heads=num_heads,
             qkv_bias=qkv_bias,
-            attn_drop=attn_drop_prob,
-            proj_drop=proj_drop_prob,
+            attn_drop_prob=attn_drop_prob,
+            proj_drop_prob=proj_drop_prob,
         )
 
         self.drop_path1 = DropPath(drop_path_prob)
@@ -64,8 +64,8 @@ class RotaryTransformerBlock(Module):
     def forward(
         self,
         x: torch.Tensor,
-        pos_ids: torch.Tensor = None,
-        attn_mask: torch.Tensor = None,
+        pos_ids: torch.Tensor | None = None,
+        attn_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Forward pass for the RotaryTransformerBlock.
 

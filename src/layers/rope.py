@@ -4,6 +4,9 @@ from torch.nn import Dropout, Linear, Module
 
 
 class RotaryPositionalEmbeddings(Module):
+    theta: torch.Tensor
+    cache: torch.Tensor
+
     def __init__(self, dim: int, max_seq_len: int = 1024, base: int = 10_000):
         """Implementation of RoPe as described in https://arxiv.org/pdf/2104.09864.
         In this implementation embeddings are cached up to `max_seq_len` during initialization.
@@ -109,8 +112,8 @@ class RotarySelfAttentionBlock(Module):
     def forward(
         self,
         x: torch.Tensor,
-        pos_ids: torch.Tensor = None,
-        attn_mask: torch.Tensor = None,
+        pos_ids: torch.Tensor | None = None,
+        attn_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Runs the forward pass of MHA but with RoPe encodings on Q and K.
 
@@ -155,7 +158,9 @@ class RotarySelfAttentionBlock(Module):
 if __name__ == "__main__":
     from torchinfo import summary
 
-    rope_attn = RotarySelfAttentionBlock(dim=256, num_heads=4)
+    rope_attn = RotarySelfAttentionBlock(
+        dim=256, num_heads=4, attn_drop_prob=0.1, proj_drop_prob=0.2
+    )
 
     summary(
         rope_attn,
