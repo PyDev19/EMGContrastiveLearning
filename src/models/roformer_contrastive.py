@@ -166,7 +166,7 @@ class RoFormerConstrastiveModel(Module):
             dropout=mlp_drop_prob,
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Forward pass for the RoFormerConstrastiveModel.
 
         Args:
@@ -190,11 +190,14 @@ class RoFormerConstrastiveModel(Module):
 
         x = self.norm_layer(x)
 
-        x = x.mean(dim=1)
+        pooled = x.mean(dim=1)
 
-        x = self.projection_head(x)
+        if self.training:
+            projected = self.projection_head(pooled)
+        else:
+            projected = None
 
-        return x
+        return pooled, projected
 
 
 if __name__ == "__main__":

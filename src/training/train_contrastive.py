@@ -3,6 +3,7 @@ import pathlib
 import numpy as np
 import torch
 import wandb
+from sklearn.metrics import silhouette_score
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 
@@ -61,8 +62,20 @@ def main():
         normalizer=normalizer,
     )
 
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=True,
+        pin_memory=True,
+        num_workers=4,
+    )
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=BATCH_SIZE,
+        shuffle=False,
+        pin_memory=True,
+        num_workers=4,
+    )
 
     model = RoFormerConstrastiveModel(
         time_steps=512,
@@ -83,47 +96,77 @@ def main():
     optimizer = AdamW(params=model.parameters(), lr=LEARNING_RATE)
     loss_fn = SupervisedContrastiveLoss(temperature=TEMPERATURE)
 
-    run.watch(model, loss_fn, log="all", log_freq=10, log_graph=True)
+    run.watch(model, loss_fn, log="all", log_freq=10)
 
     for epoch in range(EPOCHS):
         model.train()
+
         train_loss = 0.0
-        test_loss = 0.0
+        train_samples = 0
 
         for batch in train_loader:
-            optimizer.zero_grad()
             emg, emg_aug, labels = batch
             emg = emg.to(device)
             emg_aug = emg_aug.to(device)
             labels = labels.to(device)
 
-            z = model(emg)
-            z_aug = model(emg_aug)
+            optimizer.zero_grad()
+
+            _, z = model(emg)
+            _, z_aug = model(emg_aug)
 
             loss = loss_fn(z, z_aug, labels)
+
             loss.backward()
             optimizer.step()
-            train_loss += loss.item()
 
-        train_loss /= len(train_loader)
+            batch_size = emg.size(0)
+            train_loss += loss.item() * batch_size
+            train_samples += batch_size
+
+        train_loss = train_loss / train_samples
 
         model.eval()
-        with torch.no_grad():
-            for batch in test_loader:
-                emg, emg_aug, labels = batch
-                emg = emg.to(device)
-                emg_aug = emg_aug.to(device)
-                labels = labels.to(device)
 
-                z = model(emg)
-                z_aug = model(emg_aug)
+        test_loss = 0.0
+        test_samples = 0
+        all_test_embeddings = []
+        all_test_labels = []
+
+        for batch in test_loader:
+            emg, emg_aug, labels = batch
+            emg = emg.to(device)
+            emg_aug = emg_aug.to(device)
+            labels = labels.to(device)
+
+            with torch.no_grad():
+                h, z = model(emg)
+                h_aug, z_aug = model(emg_aug)
 
                 loss = loss_fn(z, z_aug, labels)
-                test_loss += loss.item()
 
-        test_loss /= len(test_loader)
+                all_test_embeddings.append(h.cpu().numpy())
+                all_test_embeddings.append(h_aug.cpu().numpy())
+                all_test_labels.append(labels.cpu().numpy())
+                all_test_labels.append(labels.cpu().numpy())
 
-        run.log({"epoch": epoch + 1, "train_loss": train_loss, "test_loss": test_loss})
+            batch_size = emg.size(0)
+            test_loss += loss.item() * batch_size
+            test_samples += batch_size
+
+        test_loss = test_loss / test_samples
+        test_silhouette_score = silhouette_score(
+            np.concatenate(all_test_embeddings, axis=0),
+            np.concatenate(all_test_labels, axis=0),
+        )
+        run.log(
+            {
+                "test_loss": test_loss,
+                "test_silhouette_score": test_silhouette_score,
+                "train_loss": train_loss,
+            },
+            step=epoch,
+        )
 
     run.finish()
 
