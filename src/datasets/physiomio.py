@@ -63,8 +63,10 @@ class PhysioMioDataset(Dataset):
         start = window_info["start"]
         end = window_info["end"]
 
-        emg_window = self.raw_emgs[trial_idx, :, start:end]  # (channels, time_steps)
-        gesture = self.gestures[trial_idx]  # (1,)
+        emg_window = self.raw_emgs[trial_idx, :, start:end]
+        emg_window = emg_window.float()  # (channels, time_steps)
+        gesture = self.gestures[trial_idx]
+        gesture = gesture.long() # (1,)
 
         emg_window_aug = (
             self.augmentations(emg_window) if self.augmentations else emg_window

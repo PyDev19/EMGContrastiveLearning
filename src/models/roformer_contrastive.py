@@ -7,7 +7,6 @@ from torch.nn import (
 )
 
 from src.layers import MLP, DropPath, PatchEmbeddings, RotarySelfAttentionBlock
-from src.utils.registers import ACTIVATIONS
 from src.utils.types import ActivationName
 
 
@@ -57,7 +56,7 @@ class RotaryTransformerBlock(Module):
             input_dim=dim,
             hidden_dims=hidden_dims,
             output_dim=dim,
-            activation=ACTIVATIONS[mlp_activation](),
+            activation=mlp_activation,
             dropout=mlp_drop_prob,
         )
 
@@ -162,7 +161,7 @@ class RoFormerConstrastiveModel(Module):
             input_dim=embed_dim,
             hidden_dims=projection_hidden_dims,
             output_dim=projection_dim,
-            activation=ACTIVATIONS[projection_activation](),
+            activation=projection_activation,
             dropout=mlp_drop_prob,
         )
 
