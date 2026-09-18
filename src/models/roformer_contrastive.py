@@ -83,7 +83,7 @@ class RotaryTransformerBlock(Module):
         return x
 
 
-class RoFormerConstrastiveModel(Module):
+class RoFormerContrastiveModel(Module):
     def __init__(
         self,
         time_steps: int,
@@ -202,7 +202,7 @@ class RoFormerConstrastiveModel(Module):
 if __name__ == "__main__":
     from torchinfo import summary
 
-    model = RoFormerConstrastiveModel(
+    model = RoFormerContrastiveModel(
         time_steps=1024,
         channels=64,
         embed_dim=256,
