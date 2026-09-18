@@ -2,7 +2,6 @@ from typing import Literal, TypedDict
 
 ActivationName = Literal["relu", "gelu", "silu"]
 NormalizerName = Literal["zscore", "minmax"]
-TaskName = Literal["contrastive", "masked_reconstruction"]
 
 
 class WindowIndex(TypedDict):
