@@ -1,6 +1,9 @@
+import math
+
 import torch
 from torch.nn import (
     LayerNorm,
+    Linear,
     Module,
     ModuleList,
     Parameter,
@@ -165,7 +168,36 @@ class RoFormerContrastiveModel(Module):
             dropout=mlp_drop_prob,
         )
 
-    def forward(self, x: torch.Tensor, return_projected: bool = True) -> tuple[torch.Tensor, torch.Tensor | None]:
+        torch.nn.init.trunc_normal_(self.channel_embed, std=0.02)
+
+        self.apply(self._init_weights)
+        self.fix_init_weight()
+
+    def fix_init_weight(self):
+        def rescale(param: torch.Tensor, layer_id: int):
+            param.div_(math.sqrt(2.0 * layer_id))
+
+        for layer_id, block in enumerate(self.blocks):
+            rescale(block.attn.projection.weight.data, layer_id + 1)  # type: ignore
+            rescale(block.mlp.layers[-1].weight.data, layer_id + 1)  # type: ignore
+
+    def _init_weights(self, module: torch.nn.Module) -> None:
+        """Initialize the weights of the model.
+
+        Args:
+            module (torch.nn.Module): The module to initialize.
+        """
+        if isinstance(module, Linear):
+            torch.nn.init.xavier_uniform_(module.weight)
+            if module.bias is not None:
+                torch.nn.init.constant_(module.bias, 0)
+        elif isinstance(module, LayerNorm):
+            torch.nn.init.constant_(module.bias, 0)
+            torch.nn.init.constant_(module.weight, 1.0)
+
+    def forward(
+        self, x: torch.Tensor, return_projected: bool = True
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Forward pass for the RoFormerConstrastiveModel.
 
         Args:
