@@ -1,13 +1,12 @@
 #!/bin/bash
 #SBATCH --nodes=1
-#SBATCH --partition=gpu-preempt
+#SBATCH --partition=h200
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mail-user=axm240143@utdallas.edu
 #SBATCH --mail-type=ALL
-#SBATCH --job-name=transformer_cls_train
-#SBATCH --output=transformer_cls_train.out
-#SBATCH --nodelist=g-07-04
+#SBATCH --job-name=bep_train
+#SBATCH --output=bep_train.out
 
 module load miniconda
 
@@ -17,13 +16,11 @@ conda activate /groups/emeyers/.conda/envs/meyerlab
 
 SRC=/groups/emeyers/EMGContrastiveLearning/
 
-cd ~/scratch/physiomio/
-DATA_DIR=$(pwd)/all_preprocessed/raw_ungrouped_labels
+cd ~/scratch/blueprint_data/
+DATA_DIR=$(pwd)/impaired_arm_ungrouped_include_fma_zero
 
-LOGS_DIR=$SRC/logs/transformer_cls/
-CONFIG=$SRC/configs/transformer_cls_tfc.json
-FOLD=1
+CONFIG=$SRC/configs/roformer_contrastive_physiomio.yaml
 
 cd $SRC
 
-python -m src.train --data_path $DATA_DIR --config $CONFIG --log_dir $LOGS_DIR --fold $FOLD
+python -m src.train --data-dir $DATA_DIR --config $CONFIG
