@@ -1,0 +1,46 @@
+task: contrastive
+batch_size: 1024
+num_epochs: 100
+normalizer: zscore
+
+dataset:
+    name: physiomio
+    args:
+        window_opts:
+            size: 512
+            stride: 256
+        rms_opts: null
+
+model:
+    name: roformer_contrastive
+    args:
+        time_steps: 512
+        channels: 64
+        patch_size: 64
+        embed_dim: 256
+        hidden_dims: [512]
+        projection_dim: 128
+        projection_hidden_dims: [256]
+        num_heads: 4
+        num_layers: 2
+        proj_drop_prob: 0.1
+        attn_drop_prob: 0.1
+        drop_path_prob: 0.1
+        mlp_drop_prob: 0.1
+        qkv_bias: false
+        mlp_activation: gelu
+        projection_activation: silu
+
+loss:
+    name: supervised_contrastive
+    args:
+        temperature: 0.07
+
+optimizer:
+    learning_rate: 1.0e-4
+    weight_decay: 1.0e-5
+
+wandb:
+    entity: atharvamishra-university-of-texas-at-dallas
+    project: ProjectBlueprint
+    log_freq: 10
