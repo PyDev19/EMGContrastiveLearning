@@ -6,3 +6,5 @@ logs/*
 visuals/*
 old/*
 *.txt
+*.out
+wandb/
