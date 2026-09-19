@@ -165,7 +165,7 @@ class RoFormerContrastiveModel(Module):
             dropout=mlp_drop_prob,
         )
 
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor | None]:
+    def forward(self, x: torch.Tensor, return_projected: bool = True) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Forward pass for the RoFormerConstrastiveModel.
 
         Args:
@@ -191,10 +191,7 @@ class RoFormerContrastiveModel(Module):
 
         pooled = x.mean(dim=1)
 
-        if self.training:
-            projected = self.projection_head(pooled)
-        else:
-            projected = None
+        projected = self.projection_head(pooled) if return_projected else None
 
         return pooled, projected
 
