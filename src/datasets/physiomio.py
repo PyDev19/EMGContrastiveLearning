@@ -69,7 +69,7 @@ class PhysioMioDataset(Dataset):
         gesture = gesture.long()  # (1,)
 
         emg_window_aug = (
-            self.augmentations(emg_window) if self.augmentations else None
+            self.augmentations(emg_window) if self.augmentations else 0
         )  # (channels, time_steps)
 
         emg_window = (
