@@ -18,7 +18,7 @@ class SupervisedContrastiveLoss(Module):
         self.temperature = temperature
 
     def forward(
-        self, z: torch.Tensor, z_aug: torch.Tensor, labels: torch.Tensor
+        self, z: torch.Tensor, labels: torch.Tensor, z_aug: torch.Tensor | None = None
     ) -> torch.Tensor:
         """Vectorized calculation of L_out supcon loss using mean reduction.
 
@@ -42,8 +42,12 @@ class SupervisedContrastiveLoss(Module):
 
         # stack the two views into one batch, so each sample's augmented
         # twin acts as a guaranteed positive for it: (2B, D) / (2B,)
-        embeddings = torch.cat([z, z_aug], dim=0)
-        labels = torch.cat([labels, labels], dim=0).unsqueeze(1)
+        if z_aug is not None:
+            embeddings = torch.cat([z, z_aug], dim=0)
+            labels = torch.cat([labels, labels], dim=0).unsqueeze(1)
+        else:
+            embeddings = z
+            labels = labels.unsqueeze(1)
 
         # cosine similarity between every pair of samples, scaled by temperature
         embeddings = torch.nn.functional.normalize(embeddings, dim=1)
@@ -113,18 +117,18 @@ if __name__ == "__main__":
 
     loss_perfect = loss_fn(z_perfect, z_aug_perfect, labels_perfect)
     print(f"near-ideal embeddings loss: {loss_perfect.item():.4f}")
-    assert (
-        loss_perfect.item() < loss.item()
-    ), "well-separated embeddings should have lower loss"
+    assert loss_perfect.item() < loss.item(), (
+        "well-separated embeddings should have lower loss"
+    )
 
     # gradient check: loss should be differentiable w.r.t. inputs
     z_grad = torch.randn(batch_size, embed_dim, device=device, requires_grad=True)
     z_aug_grad = torch.randn(batch_size, embed_dim, device=device, requires_grad=True)
     loss_grad = loss_fn(z_grad, z_aug_grad, labels)
     loss_grad.backward()
-    assert (
-        z_grad.grad is not None and torch.isfinite(z_grad.grad).all()
-    ), "gradients should be finite"
+    assert z_grad.grad is not None and torch.isfinite(z_grad.grad).all(), (
+        "gradients should be finite"
+    )
     print("gradient check passed")
 
     # edge case: batch size of 1 (only positive is the augmented twin)
