@@ -5,12 +5,12 @@ from dataclasses import asdict
 import numpy as np
 import torch
 import wandb
-from matplotlib import pyplot as plt
 from sklearn.manifold import TSNE
 from sklearn.metrics import silhouette_score
 from torch.optim import AdamW, Optimizer
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
+from umap import UMAP
 
 from src.config import ContrastiveTrainingConfig, load_training_config
 from src.datasets.physiomio import PhysioMioDataset
@@ -117,6 +117,7 @@ def run_eval_epoch(
     loss_fn: torch.nn.Module,
     device: torch.device,
     log_tsne: bool = False,
+    log_umap: bool = False,
 ) -> dict:
     """Runs one evaluation epoch: computes mean loss and silhouette score on the
     pooled (pre-projection) backbone representation, not the projected embedding,
@@ -160,19 +161,25 @@ def run_eval_epoch(
     test_silhouette_score = float(silhouette_score(pooled, labels_arr))
 
     tsne_coords = None
+    umap_coords = None
     labels = None
     if len(pooled) > 5000:
         idx = np.random.choice(len(pooled), 5000, replace=False)
         pooled, labels = pooled[idx], labels_arr[idx]
 
     if log_tsne:
-        tsne = TSNE(n_components=2, init="pca", random_state=42)
+        tsne = TSNE(n_components=3, random_state=42)
         tsne_coords = tsne.fit_transform(pooled)
+
+    if log_umap:
+        umap = UMAP(n_components=3, random_state=42)
+        umap_coords = umap.fit_transform(pooled)
 
     return {
         "loss": (loss_sum / num_samples).item(),
         "silhouette_score": test_silhouette_score,
         "tsne_coords": tsne_coords,
+        "umap_coords": umap_coords,
         "labels": labels,
     }
 
@@ -238,19 +245,26 @@ def main():
         )
 
         if eval_metrics["tsne_coords"] is not None:
-            coords_2d = eval_metrics["tsne_coords"]
+            coords = eval_metrics["tsne_coords"]
             labels = eval_metrics["labels"]
 
-            fig, ax = plt.subplots(figsize=(8, 8))
-            scatter = ax.scatter(
-                coords_2d[:, 0], coords_2d[:, 1], c=labels, cmap="tab20", s=8, alpha=0.7
-            )
-            ax.legend(
-                *scatter.legend_elements(), title="Class", loc="best", fontsize="small"
-            )
-            ax.set_title(f"t-SNE of pooled embeddings (epoch {epoch})")
+            points = np.concatenate([coords, labels.reshape(-1, 1)], axis=1)
 
-            run.log({"test_embeddings_tsne": wandb.Image(fig)}, step=epoch + 1)
+            run.log(
+                {"test_embeddings_tsne_3d": wandb.Object3D(points)},
+                step=epoch,
+            )
+
+        if eval_metrics["umap_coords"] is not None:
+            coords = eval_metrics["umap_coords"]
+            labels = eval_metrics["labels"]
+
+            points = np.concatenate([coords, labels.reshape(-1, 1)], axis=1)
+
+            run.log(
+                {"test_embeddings_umap_3d": wandb.Object3D(points)},
+                step=epoch,
+            )
 
     run.finish()
 

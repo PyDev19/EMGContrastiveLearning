@@ -22,11 +22,11 @@ model:
         projection_dim: 128
         projection_hidden_dims: [256]
         num_heads: 4
-        num_layers: 2
-        proj_drop_prob: 0.1
-        attn_drop_prob: 0.1
-        drop_path_prob: 0.1
-        mlp_drop_prob: 0.1
+        num_layers: 4
+        proj_drop_prob: 0.3
+        attn_drop_prob: 0.3
+        drop_path_prob: 0.3
+        mlp_drop_prob: 0.3
         qkv_bias: false
         mlp_activation: gelu
         projection_activation: silu
