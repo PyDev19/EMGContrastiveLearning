@@ -228,11 +228,11 @@ def main():
     )
     run.watch(model, loss_fn, log="all", log_freq=config.wandb.log_freq)
 
-    for epoch in range(config.num_epochs):
+    for epoch in range(1, config.num_epochs + 1):
         train_loss = run_train_epoch(model, train_loader, loss_fn, optimizer, device)
         scheduler.step()
         eval_metrics = run_eval_epoch(
-            model, test_loader, loss_fn, device, log_tsne=(epoch + 1) % 10 == 0
+            model, test_loader, loss_fn, device, log_tsne=epoch % 10 == 0
         )
 
         run.log(
@@ -241,7 +241,7 @@ def main():
                 "test_loss": eval_metrics["loss"],
                 "test_silhouette": eval_metrics["silhouette_score"],
             },
-            step=epoch + 1,
+            step=epoch,
         )
 
         if eval_metrics["tsne_coords"] is not None:
