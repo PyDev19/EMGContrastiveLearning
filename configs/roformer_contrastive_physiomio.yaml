@@ -1,7 +1,10 @@
 task: contrastive
 batch_size: 1024
-num_epochs: 100
+num_epochs: 200
+scheduler_restarts: 100
 normalizer: zscore
+max_embedding_samples: 5000
+embeddings_log_freq: 10
 
 dataset:
     name: physiomio

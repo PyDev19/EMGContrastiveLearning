@@ -73,6 +73,9 @@ class ContrastiveTrainingConfig:
     task: Literal["contrastive"]
     batch_size: int
     num_epochs: int
+    max_embedding_samples: int
+    embeddings_log_freq: int
+    scheduler_restarts: int
     normalizer: NormalizerName
     dataset: DatasetConfig
     model: ModelConfig

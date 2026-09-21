@@ -7,8 +7,9 @@ import torch
 import wandb
 from sklearn.manifold import TSNE
 from sklearn.metrics import silhouette_score
+from sklearn.model_selection import train_test_split
 from torch.optim import AdamW, Optimizer
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.utils.data import DataLoader
 from umap import UMAP
 
@@ -116,8 +117,6 @@ def run_eval_epoch(
     loader: DataLoader,
     loss_fn: torch.nn.Module,
     device: torch.device,
-    log_tsne: bool = False,
-    log_umap: bool = False,
 ) -> dict:
     """Runs one evaluation epoch: computes mean loss and silhouette score on the
     pooled (pre-projection) backbone representation, not the projected embedding,
@@ -156,32 +155,43 @@ def run_eval_epoch(
         all_labels.append(labels.cpu().numpy())
 
     pooled = np.concatenate(all_pooled, axis=0)
-    labels_arr = np.concatenate(all_labels, axis=0)
+    labels = np.concatenate(all_labels, axis=0)
 
-    test_silhouette_score = float(silhouette_score(pooled, labels_arr))
-
-    tsne_coords = None
-    umap_coords = None
-    labels = None
-    if len(pooled) > 5000:
-        idx = np.random.choice(len(pooled), 5000, replace=False)
-        pooled, labels = pooled[idx], labels_arr[idx]
-
-    if log_tsne:
-        tsne = TSNE(n_components=3, random_state=42)
-        tsne_coords = tsne.fit_transform(pooled)
-
-    if log_umap:
-        umap = UMAP(n_components=3, random_state=42)
-        umap_coords = umap.fit_transform(pooled)
+    test_silhouette_score = float(silhouette_score(pooled, labels))
 
     return {
         "loss": (loss_sum / num_samples).item(),
         "silhouette_score": test_silhouette_score,
-        "tsne_coords": tsne_coords,
-        "umap_coords": umap_coords,
+        "embeddings": pooled,
         "labels": labels,
     }
+
+
+def log_embeddings(run, pooled, labels, step):
+    """Logs embeddings to wandb.
+
+    Args:
+        run: wandb run object.
+        pooled: pooled embeddings (pre-projection) of shape (N, D).
+        labels: corresponding labels of shape (N,).
+        step: current training step or epoch.
+    """
+    tsne = TSNE(n_components=3, random_state=42)
+    tsne_coords = tsne.fit_transform(pooled)
+
+    umap = UMAP(n_components=3, random_state=42)
+    umap_coords = umap.fit_transform(pooled)
+
+    tsne_points = np.concatenate([tsne_coords, labels.reshape(-1, 1)], axis=1)
+    umap_points = np.concatenate([umap_coords, labels.reshape(-1, 1)], axis=1)  # type: ignore
+
+    run.log(
+        {
+            "tsne_embeddings": wandb.Object3D(tsne_points),
+            "umap_embeddings": wandb.Object3D(umap_points),
+        },
+        step=step,
+    )
 
 
 def main():
@@ -218,7 +228,7 @@ def main():
         lr=config.optimizer.learning_rate,
         weight_decay=config.optimizer.weight_decay,
     )
-    scheduler = CosineAnnealingLR(optimizer, T_max=config.num_epochs)
+    scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=config.scheduler_restarts)
     loss_fn = build_loss(config)
 
     run = wandb.init(
@@ -228,12 +238,23 @@ def main():
     )
     run.watch(model, loss_fn, log="all", log_freq=config.wandb.log_freq)
 
+    pooled_indices = None
+
     for epoch in range(1, config.num_epochs + 1):
         train_loss = run_train_epoch(model, train_loader, loss_fn, optimizer, device)
         scheduler.step()
-        eval_metrics = run_eval_epoch(
-            model, test_loader, loss_fn, device, log_tsne=epoch % 10 == 0
-        )
+        eval_metrics = run_eval_epoch(model, test_loader, loss_fn, device)
+
+        if (
+            pooled_indices is None
+            and len(eval_metrics["embeddings"]) > config.max_embedding_samples
+        ):
+            _, pooled_indices = train_test_split(
+                np.arange(len(eval_metrics["embeddings"])),
+                train_size=config.max_embedding_samples,
+                stratify=eval_metrics["labels"],
+                random_state=42,
+            )
 
         run.log(
             {
@@ -244,25 +265,11 @@ def main():
             step=epoch,
         )
 
-        if eval_metrics["tsne_coords"] is not None:
-            coords = eval_metrics["tsne_coords"]
-            labels = eval_metrics["labels"]
-
-            points = np.concatenate([coords, labels.reshape(-1, 1)], axis=1)
-
-            run.log(
-                {"test_embeddings_tsne_3d": wandb.Object3D(points)},
-                step=epoch,
-            )
-
-        if eval_metrics["umap_coords"] is not None:
-            coords = eval_metrics["umap_coords"]
-            labels = eval_metrics["labels"]
-
-            points = np.concatenate([coords, labels.reshape(-1, 1)], axis=1)
-
-            run.log(
-                {"test_embeddings_umap_3d": wandb.Object3D(points)},
+        if epoch % config.embeddings_log_freq == 0 and pooled_indices is not None:
+            log_embeddings(
+                run,
+                eval_metrics["embeddings"][pooled_indices],
+                eval_metrics["labels"][pooled_indices],
                 step=epoch,
             )
 
