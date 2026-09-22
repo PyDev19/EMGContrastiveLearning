@@ -237,7 +237,7 @@ def main():
         lr=config.optimizer.learning_rate,
         weight_decay=config.optimizer.weight_decay,
     )
-    scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=config.scheduler_restarts)
+    scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=config.scheduler_t0, T_mult=config.scheduler_tmult)
     loss_fn = build_loss(config)
 
     run = wandb.init(

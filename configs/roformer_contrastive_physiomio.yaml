@@ -1,7 +1,9 @@
 task: contrastive
-batch_size: 1024
+batch_size: 2048
 num_epochs: 200
-scheduler_restarts: 100
+scheduler_t0: 100
+scheduler_tmult: 1
+warmup_epochs: 0
 normalizer: zscore
 max_embedding_samples: 5000
 embeddings_log_freq: 10

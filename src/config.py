@@ -75,7 +75,9 @@ class ContrastiveTrainingConfig:
     num_epochs: int
     max_embedding_samples: int
     embeddings_log_freq: int
-    scheduler_restarts: int
+    scheduler_t0: int
+    scheduler_tmult: int
+    warmup_epochs: int
     normalizer: NormalizerName
     dataset: DatasetConfig
     model: ModelConfig
