@@ -8,6 +8,8 @@ import wandb
 from sklearn.manifold import TSNE
 from sklearn.metrics import silhouette_score
 from sklearn.model_selection import train_test_split
+from torch.amp.autocast_mode import autocast
+from torch.amp.grad_scaler import GradScaler
 from torch.optim import AdamW, Optimizer
 from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.utils.data import DataLoader
@@ -72,6 +74,7 @@ def run_train_epoch(
     loss_fn: torch.nn.Module,
     optimizer: Optimizer,
     device: torch.device,
+    scaler: GradScaler,
 ) -> float:
     """Runs one training epoch of contrastive learning.
 
@@ -97,12 +100,14 @@ def run_train_epoch(
 
         optimizer.zero_grad()
 
-        _, z = model(emg)
-        _, z_aug = model(emg_aug)
+        with autocast(device_type=device.type, dtype=torch.bfloat16):
+            _, z = model(emg)
+            _, z_aug = model(emg_aug)
+            loss = loss_fn(z, labels, z_aug=z_aug)
 
-        loss = loss_fn(z, labels, z_aug=z_aug)
-        loss.backward()
-        optimizer.step()
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
 
         batch_size = emg.size(0)
         loss_sum += loss.detach() * batch_size  # stays on GPU, no sync per-batch
@@ -143,9 +148,9 @@ def run_eval_epoch(
         emg = emg.to(device)
         labels = labels.to(device)
 
-        h, z = model(emg)
-
-        loss = loss_fn(z, labels)
+        with autocast(device_type=device.type, dtype=torch.bfloat16):
+            h, z = model(emg)
+            loss = loss_fn(z, labels)
 
         batch_size = emg.size(0)
         loss_sum += loss.detach() * batch_size
@@ -157,11 +162,15 @@ def run_eval_epoch(
     pooled = np.concatenate(all_pooled, axis=0)
     labels = np.concatenate(all_labels, axis=0)
 
-    test_silhouette_score = float(silhouette_score(pooled, labels))
+    test_silhouette_score = float(silhouette_score(pooled, labels, metric="cosine"))
+
+    norms = np.linalg.norm(pooled, axis=1)
 
     return {
         "loss": (loss_sum / num_samples).item(),
         "silhouette_score": test_silhouette_score,
+        "pooled_norms_mean": float(norms.mean()),
+        "pooled_norms_std": float(norms.std()),
         "embeddings": pooled,
         "labels": labels,
     }
@@ -240,8 +249,12 @@ def main():
 
     pooled_indices = None
 
+    scaler = GradScaler(device=device.type)
+
     for epoch in range(1, config.num_epochs + 1):
-        train_loss = run_train_epoch(model, train_loader, loss_fn, optimizer, device)
+        train_loss = run_train_epoch(
+            model, train_loader, loss_fn, optimizer, device, scaler
+        )
         scheduler.step()
         eval_metrics = run_eval_epoch(model, test_loader, loss_fn, device)
 
@@ -261,6 +274,8 @@ def main():
                 "train_loss": train_loss,
                 "test_loss": eval_metrics["loss"],
                 "test_silhouette": eval_metrics["silhouette_score"],
+                "test_pooled_norms_mean": eval_metrics["pooled_norms_mean"],
+                "test_pooled_norms_std": eval_metrics["pooled_norms_std"],
             },
             step=epoch,
         )

@@ -41,7 +41,7 @@ loss:
 
 optimizer:
     learning_rate: 1.0e-4
-    weight_decay: 1.0e-5
+    weight_decay: 1.0e-2
 
 wandb:
     entity: atharvamishra-university-of-texas-at-dallas
