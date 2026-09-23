@@ -5,9 +5,11 @@ from dataclasses import asdict
 import numpy as np
 import torch
 import wandb
+from sklearn.linear_model import LogisticRegression
 from sklearn.manifold import TSNE
-from sklearn.metrics import silhouette_score
+from sklearn.metrics import classification_report, silhouette_score
 from sklearn.model_selection import train_test_split
+from sklearn.neighbors import KNeighborsClassifier
 from torch.amp.autocast_mode import autocast
 from torch.amp.grad_scaler import GradScaler
 from torch.optim import AdamW, Optimizer
@@ -164,19 +166,15 @@ def run_eval_epoch(
 
     test_silhouette_score = float(silhouette_score(pooled, labels, metric="cosine"))
 
-    norms = np.linalg.norm(pooled, axis=1)
-
     return {
         "loss": (loss_sum / num_samples).item(),
         "silhouette_score": test_silhouette_score,
-        "pooled_norms_mean": float(norms.mean()),
-        "pooled_norms_std": float(norms.std()),
         "embeddings": pooled,
         "labels": labels,
     }
 
 
-def log_embeddings(run, pooled, labels, step):
+def log_embeddings(pooled, labels):
     """Logs embeddings to wandb.
 
     Args:
@@ -185,22 +183,101 @@ def log_embeddings(run, pooled, labels, step):
         labels: corresponding labels of shape (N,).
         step: current training step or epoch.
     """
-    tsne = TSNE(n_components=3, random_state=42)
+    tsne = TSNE(n_components=3, random_state=42, n_jobs=-1)
     tsne_coords = tsne.fit_transform(pooled)
 
-    umap = UMAP(n_components=3, random_state=42)
+    umap = UMAP(n_components=3, random_state=42, n_jobs=-1)
     umap_coords = umap.fit_transform(pooled)
 
     tsne_points = np.concatenate([tsne_coords, labels.reshape(-1, 1)], axis=1)
     umap_points = np.concatenate([umap_coords, labels.reshape(-1, 1)], axis=1)  # type: ignore
 
-    run.log(
-        {
-            "tsne_embeddings": wandb.Object3D(tsne_points),
-            "umap_embeddings": wandb.Object3D(umap_points),
-        },
-        step=step,
+    return {
+        "tsne_embeddings": wandb.Object3D(tsne_points),
+        "umap_embeddings": wandb.Object3D(umap_points),
+    }
+
+
+@torch.no_grad()
+def linear_probe(
+    model: torch.nn.Module,
+    train_loader: DataLoader,
+    test_h: np.ndarray,
+    test_labels: np.ndarray,
+    device: torch.device,
+):
+    """Trains a linear classifier on top of the frozen model's pooled embeddings and evaluates it.
+
+    Args:
+        model (torch.nn.Module): the contrastive model; forward returns (pooled, projected).
+        train_loader (DataLoader): yields (emg, emg_aug, labels) batches for training.
+        test_loader (DataLoader): yields (emg, emg_aug, labels) batches for evaluation.
+        device (torch.device): device to move batches to.
+    """
+    model.eval()
+
+    train_h, train_labels = [], []
+
+    for emg, _, labels in train_loader:
+        emg = emg.to(device)
+        labels = labels.to(device)
+
+        with autocast(device_type=device.type, dtype=torch.bfloat16):
+            h, _ = model(emg)
+
+        train_h.append(h.cpu().numpy())
+        train_labels.append(labels.cpu().numpy())
+
+    train_h = np.concatenate(train_h, axis=0)
+    train_labels = np.concatenate(train_labels, axis=0)
+
+    clf = LogisticRegression(max_iter=1000, solver="lbfgs", n_jobs=-1)
+    clf.fit(train_h, train_labels)
+
+    knn = KNeighborsClassifier(n_neighbors=20, n_jobs=-1)
+    knn.fit(train_h, train_labels)
+
+    lr_preds = clf.predict(test_h)
+    knn_preds = knn.predict(test_h)
+
+    lr_report = classification_report(
+        test_labels, lr_preds, output_dict=True, zero_division=0
     )
+    knn_report = classification_report(
+        test_labels, knn_preds, output_dict=True, zero_division=0
+    )
+
+    # Log the classification reports to wandb as tables
+    lr_table = wandb.Table(
+        columns=["class", "precision", "recall", "f1-score", "support"]
+    )
+    for label, metrics in lr_report.items():  # type: ignore
+        if label not in ["accuracy", "macro avg", "weighted avg"]:
+            lr_table.add_data(
+                label,
+                metrics["precision"],
+                metrics["recall"],
+                metrics["f1-score"],
+                metrics["support"],
+            )
+
+    knn_table = wandb.Table(
+        columns=["class", "precision", "recall", "f1-score", "support"]
+    )
+    for label, metrics in knn_report.items():  # type: ignore
+        if label not in ["accuracy", "macro avg", "weighted avg"]:
+            knn_table.add_data(
+                label,
+                metrics["precision"],
+                metrics["recall"],
+                metrics["f1-score"],
+                metrics["support"],
+            )
+
+    return {
+        "lr_table": lr_table,
+        "knn_table": knn_table,
+    }
 
 
 def main():
@@ -237,9 +314,7 @@ def main():
         lr=config.optimizer.learning_rate,
         weight_decay=config.optimizer.weight_decay,
     )
-    scheduler = CosineAnnealingWarmRestarts(
-        optimizer, T_0=config.scheduler_t0, T_mult=config.scheduler_tmult
-    )
+    scheduler = CosineAnnealingWarmRestarts(optimizer, **asdict(config.scheduler))
     loss_fn = build_loss(config)
 
     run = wandb.init(
@@ -276,17 +351,38 @@ def main():
                 "train_loss": train_loss,
                 "test_loss": eval_metrics["loss"],
                 "test_silhouette": eval_metrics["silhouette_score"],
-                "test_pooled_norms_mean": eval_metrics["pooled_norms_mean"],
-                "test_pooled_norms_std": eval_metrics["pooled_norms_std"],
+                "learning_rate": scheduler.get_last_lr()[0],
             },
             step=epoch,
         )
 
         if epoch % config.embeddings_log_freq == 0 and pooled_indices is not None:
-            log_embeddings(
-                run,
+            embedding_coords = log_embeddings(
                 eval_metrics["embeddings"][pooled_indices],
                 eval_metrics["labels"][pooled_indices],
+            )
+
+            run.log(
+                {
+                    "test_tsne_embeddings": embedding_coords["tsne_embeddings"],
+                    "test_umap_embeddings": embedding_coords["umap_embeddings"],
+                },
+                step=epoch,
+            )
+
+        if epoch % config.linear_probe_freq == 0 and pooled_indices is not None:
+            probe_tables = linear_probe(
+                model,
+                train_loader,
+                eval_metrics["embeddings"][pooled_indices],
+                eval_metrics["labels"][pooled_indices],
+                device,
+            )
+            run.log(
+                {
+                    "test_lr_metrics": probe_tables["lr_table"],
+                    "test_knn_metrics": probe_tables["knn_table"],
+                },
                 step=epoch,
             )
 

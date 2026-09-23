@@ -69,20 +69,27 @@ class WandbConfig:
 
 
 @dataclass
+class SchedulerConfig:
+    T_0: int
+    T_mult: int
+    eta_min: float
+
+
+@dataclass
 class ContrastiveTrainingConfig:
     task: Literal["contrastive"]
     batch_size: int
     num_epochs: int
     max_embedding_samples: int
     embeddings_log_freq: int
-    scheduler_t0: int
-    scheduler_tmult: int
-    warmup_epochs: int
+    linear_probe_freq: int
     normalizer: NormalizerName
+
     dataset: DatasetConfig
     model: ModelConfig
     loss: LossConfig
     optimizer: OptimizerArgs
+    scheduler: SchedulerConfig
     wandb: WandbConfig
 
 

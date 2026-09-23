@@ -1,12 +1,10 @@
 task: contrastive
 batch_size: 2048
 num_epochs: 200
-scheduler_t0: 100
-scheduler_tmult: 1
-warmup_epochs: 0
 normalizer: zscore
 max_embedding_samples: 5000
 embeddings_log_freq: 10
+linear_probe_freq: 25
 
 dataset:
     name: physiomio
@@ -49,3 +47,8 @@ wandb:
     entity: atharvamishra-university-of-texas-at-dallas
     project: ProjectBlueprint
     log_freq: 10
+
+scheduler:
+    T_0: 100
+    T_mult: 1
+    eta_min: 1.0e-6
