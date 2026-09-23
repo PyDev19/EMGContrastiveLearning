@@ -237,7 +237,9 @@ def main():
         lr=config.optimizer.learning_rate,
         weight_decay=config.optimizer.weight_decay,
     )
-    scheduler = CosineAnnealingWarmRestarts(optimizer, T_0=config.scheduler_t0, T_mult=config.scheduler_tmult)
+    scheduler = CosineAnnealingWarmRestarts(
+        optimizer, T_0=config.scheduler_t0, T_mult=config.scheduler_tmult
+    )
     loss_fn = build_loss(config)
 
     run = wandb.init(
@@ -262,7 +264,7 @@ def main():
             pooled_indices is None
             and len(eval_metrics["embeddings"]) > config.max_embedding_samples
         ):
-            _, pooled_indices = train_test_split(
+            pooled_indices, _ = train_test_split(
                 np.arange(len(eval_metrics["embeddings"])),
                 train_size=config.max_embedding_samples,
                 stratify=eval_metrics["labels"],
