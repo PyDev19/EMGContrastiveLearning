@@ -247,37 +247,18 @@ def linear_probe(
         test_labels, knn_preds, output_dict=True, zero_division=0
     )
 
-    # Log the classification reports to wandb as tables
-    lr_table = wandb.Table(
-        columns=["class", "precision", "recall", "f1-score", "support"]
-    )
+    lr = {}
+    knn = {}
+
     for label, metrics in lr_report.items():  # type: ignore
         if label not in ["accuracy", "macro avg", "weighted avg"]:
-            lr_table.add_data(
-                label,
-                metrics["precision"],
-                metrics["recall"],
-                metrics["f1-score"],
-                metrics["support"],
-            )
+            lr[f"label_{label}"] = metrics["f1-score"]
 
-    knn_table = wandb.Table(
-        columns=["class", "precision", "recall", "f1-score", "support"]
-    )
     for label, metrics in knn_report.items():  # type: ignore
         if label not in ["accuracy", "macro avg", "weighted avg"]:
-            knn_table.add_data(
-                label,
-                metrics["precision"],
-                metrics["recall"],
-                metrics["f1-score"],
-                metrics["support"],
-            )
+            knn[f"label_{label}"] = metrics["f1-score"]
 
-    return {
-        "lr_table": lr_table,
-        "knn_table": knn_table,
-    }
+    return {"lr": lr, "knn": knn}
 
 
 def main():
@@ -367,24 +348,24 @@ def main():
                     "test_tsne_embeddings": embedding_coords["tsne_embeddings"],
                     "test_umap_embeddings": embedding_coords["umap_embeddings"],
                 },
-                step=epoch,
+                step=epoch // config.embeddings_log_freq,
             )
 
         if epoch % config.linear_probe_freq == 0 and pooled_indices is not None:
-            probe_tables = linear_probe(
+            probe_results = linear_probe(
                 model,
                 train_loader,
                 eval_metrics["embeddings"][pooled_indices],
                 eval_metrics["labels"][pooled_indices],
                 device,
             )
-            run.log(
-                {
-                    "test_lr_metrics": probe_tables["lr_table"],
-                    "test_knn_metrics": probe_tables["knn_table"],
-                },
-                step=epoch,
-            )
+
+            for probe_name, metrics in probe_results.items():
+                for label, f1_score in metrics.items():
+                    run.log(
+                        {f"probe_{probe_name}_f1/{label}": f1_score},
+                        step=epoch // config.linear_probe_freq,
+                    )
 
     run.finish()
 
