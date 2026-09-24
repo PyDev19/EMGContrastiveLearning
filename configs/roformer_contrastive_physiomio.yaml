@@ -1,5 +1,5 @@
 task: contrastive
-batch_size: 4096
+batch_size: 2048
 num_epochs: 1000
 normalizer: zscore
 max_embedding_samples: 5000

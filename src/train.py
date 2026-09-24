@@ -348,7 +348,7 @@ def main():
                     "test_tsne_embeddings": embedding_coords["tsne_embeddings"],
                     "test_umap_embeddings": embedding_coords["umap_embeddings"],
                 },
-                step=epoch // config.embeddings_log_freq,
+                step=epoch,
             )
 
         if epoch % config.linear_probe_freq == 0 and pooled_indices is not None:
@@ -364,7 +364,7 @@ def main():
                 for label, f1_score in metrics.items():
                     run.log(
                         {f"probe_{probe_name}_f1/{label}": f1_score},
-                        step=epoch // config.linear_probe_freq,
+                        step=epoch,
                     )
 
     run.finish()
