@@ -1,7 +1,6 @@
-from torch.nn import GELU, BatchNorm1d, GroupNorm, LayerNorm, ReLU, SiLU
+from torch.nn import GELU, ReLU, SiLU
 
 from src.utils.normalization import MinMaxNormalizer, ZScoreNormalizer
 
 NORMALIZERS = {"zscore": ZScoreNormalizer, "minmax": MinMaxNormalizer}
 ACTIVATIONS = {"relu": ReLU, "gelu": GELU, "silu": SiLU}
-NORM_LAYERS = {"batch1d": BatchNorm1d, "layer": LayerNorm, "group": GroupNorm}

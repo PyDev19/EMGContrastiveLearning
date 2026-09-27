@@ -19,7 +19,6 @@ from umap import UMAP
 
 from src.config import ContrastiveTrainingConfig, load_training_config
 from src.datasets.physiomio import PhysioMioDataset
-from src.loss.masked_reconstruction import MaskedReconstructionLoss
 from src.loss.supcon import SupervisedContrastiveLoss
 from src.models.roformer_contrastive import RoFormerContrastiveModel
 from src.utils.augmentations import Augmentations
@@ -29,7 +28,6 @@ DATASETS = {"physiomio": PhysioMioDataset}
 MODELS = {"roformer_contrastive": RoFormerContrastiveModel}
 LOSSES = {
     "supervised_contrastive": SupervisedContrastiveLoss,
-    "masked_reconstruction": MaskedReconstructionLoss,
 }
 
 
