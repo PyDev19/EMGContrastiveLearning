@@ -30,12 +30,14 @@ class PhysioMioDataset(Dataset):
 
         emgs = []
         gestures = []
+        subjects = []
 
         print("Loading patient data...")
         for patient_id in patient_ids:
             with h5py.File(data_dir / f"patient_{patient_id}.h5", "r") as f:
                 emgs.append(f["emgs"][:])  # pyright: ignore[reportIndexIssue]
                 gestures.append(f["gestures"][:])  # pyright: ignore[reportIndexIssue]
+                subjects.append(np.full((f["gestures"].shape[0],), patient_id))  # type: ignore
 
         print("Concatenating dataset and converting to tensor...")
         self.raw_emgs = torch.from_numpy(
@@ -43,6 +45,9 @@ class PhysioMioDataset(Dataset):
         )  # (trials, channels, time steps)
         self.gestures = torch.from_numpy(
             np.concatenate(gestures, axis=0)
+        ).long()  # (trials, 1)
+        self.subjects = torch.from_numpy(
+            np.concatenate(subjects, axis=0)
         ).long()  # (trials, 1)
 
         print(f"Normalizing sEMG signals with {normalizer.__class__.__name__}...")
@@ -68,6 +73,9 @@ class PhysioMioDataset(Dataset):
         gesture = self.gestures[trial_idx]
         gesture = gesture.long()  # (1,)
 
+        subject = self.subjects[trial_idx]
+        subject = subject.long()  # (1,)
+
         emg_window_aug = (
             self.augmentations(emg_window) if self.augmentations else 0
         )  # (channels, time_steps)
@@ -76,7 +84,7 @@ class PhysioMioDataset(Dataset):
             rms_transform(emg_window, **self.rms_opts) if self.rms_opts else emg_window
         )
 
-        return emg_window, emg_window_aug, gesture
+        return emg_window, emg_window_aug, gesture, subject
 
 
 def main():
@@ -131,7 +139,7 @@ def main():
 
     print("\n=== Single-item check ===")
     idx = 1
-    emg_window, emg_aug, gesture = dataset[idx]
+    emg_window, _, gesture, _ = dataset[idx]
     print(f"emg_window shape: {tuple(emg_window.shape)}, dtype: {emg_window.dtype}")
     print(f"gesture: {gesture}")
     print(

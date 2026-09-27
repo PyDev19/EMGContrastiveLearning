@@ -93,17 +93,20 @@ def run_train_epoch(
     loss_sum = torch.zeros(1, device=device)
     num_samples = 0
 
-    for emg, emg_aug, labels in loader:
+    for emg, emg_aug, labels, subjects in loader:
         emg = emg.to(device)
         emg_aug = emg_aug.to(device)
         labels = labels.to(device)
+        subjects = subjects.to(device)
 
         optimizer.zero_grad()
 
         with autocast(device_type=device.type, dtype=torch.bfloat16):
-            _, z = model(emg)
-            _, z_aug = model(emg_aug)
-            loss = loss_fn(z, labels, z_aug=z_aug)
+            _, z, z_subject = model(emg)
+            _, z_aug, z_aug_subject = model(emg_aug)
+            gesture_loss = loss_fn(z, labels, z_aug=z_aug)
+            subject_loss = loss_fn(z_subject, subjects, z_aug=z_aug_subject)
+            loss = gesture_loss + subject_loss
 
         scaler.scale(loss).backward()
         scaler.step(optimizer)
@@ -144,13 +147,16 @@ def run_eval_epoch(
     all_pooled: list[np.ndarray] = []
     all_labels: list[np.ndarray] = []
 
-    for emg, _, labels in loader:
+    for emg, _, labels, subjects in loader:
         emg = emg.to(device)
         labels = labels.to(device)
+        subjects = subjects.to(device)
 
         with autocast(device_type=device.type, dtype=torch.bfloat16):
-            h, z = model(emg)
-            loss = loss_fn(z, labels)
+            h, z, z_subject = model(emg)
+            gesture_loss = loss_fn(z, labels)
+            subject_loss = loss_fn(z_subject, subjects)
+            loss = gesture_loss + subject_loss
 
         batch_size = emg.size(0)
         loss_sum += loss.detach() * batch_size
