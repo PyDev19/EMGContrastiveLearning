@@ -9,7 +9,13 @@ from torch.nn import (
     Parameter,
 )
 
-from src.layers import MLP, DropPath, PatchEmbeddings, RotarySelfAttentionBlock
+from src.layers import (
+    MLP,
+    DropPath,
+    GradientReverseLayer,
+    PatchEmbeddings,
+    RotarySelfAttentionBlock,
+)
 from src.utils.types import ActivationName
 
 
@@ -168,6 +174,16 @@ class RoFormerContrastiveModel(Module):
             dropout=mlp_drop_prob,
         )
 
+        self.subject_discriminator = GradientReverseLayer()
+
+        self.subject_head = MLP(
+            input_dim=embed_dim,
+            hidden_dims=projection_hidden_dims,
+            output_dim=projection_dim,
+            activation=projection_activation,
+            dropout=mlp_drop_prob,
+        )
+
         torch.nn.init.trunc_normal_(self.channel_embed, std=0.02)
 
         self.apply(self._init_weights)
@@ -197,14 +213,15 @@ class RoFormerContrastiveModel(Module):
 
     def forward(
         self, x: torch.Tensor, return_projected: bool = True
-    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
         """Forward pass for the RoFormerConstrastiveModel.
 
         Args:
             x (torch.Tensor): Input tensor of shape (batch_size, channels, time_steps).
+            return_projected (bool): Whether to return the projected features.
 
         Returns:
-            torch.Tensor: Output tensor of shape (batch_size, projection_dim).
+            tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]: A tuple containing the pooled features, the projected features, and the subject projection.
         """
         x = self.patch_embedding(x)
         B, C, P, D = x.shape
@@ -225,7 +242,12 @@ class RoFormerContrastiveModel(Module):
 
         projected = self.projection_head(pooled) if return_projected else None
 
-        return pooled, projected
+        subject_projection = self.subject_discriminator(pooled)
+        subject_projection = (
+            self.subject_head(subject_projection) if return_projected else None
+        )
+
+        return pooled, projected, subject_projection
 
 
 if __name__ == "__main__":
