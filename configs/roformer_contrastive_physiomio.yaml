@@ -1,6 +1,6 @@
 task: contrastive
 batch_size: 2048
-num_epochs: 1000
+num_epochs: 200
 normalizer: zscore
 max_embedding_samples: 5000
 embeddings_log_freq: 10
@@ -24,8 +24,8 @@ model:
         hidden_dims: [512]
         projection_dim: 128
         projection_hidden_dims: [256]
-        num_heads: 4
-        num_layers: 4
+        num_heads: 2
+        num_layers: 2
         proj_drop_prob: 0.3
         attn_drop_prob: 0.3
         drop_path_prob: 0.3
@@ -51,4 +51,4 @@ wandb:
 scheduler:
     T_0: 100
     T_mult: 1
-    eta_min: 1.0e-6
+    eta_min: 0
