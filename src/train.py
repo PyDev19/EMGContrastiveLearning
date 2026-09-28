@@ -144,8 +144,9 @@ def run_eval_epoch(
 
     loss_sum = torch.zeros(1, device=device)
     num_samples = 0
-    all_pooled: list[np.ndarray] = []
-    all_labels: list[np.ndarray] = []
+    all_pooled = []
+    all_labels = []
+    all_subjects = []
 
     for emg, _, labels, subjects in loader:
         emg = emg.to(device)
@@ -164,21 +165,26 @@ def run_eval_epoch(
 
         all_pooled.append(h.cpu().numpy())
         all_labels.append(labels.cpu().numpy())
+        all_subjects.append(subjects.cpu().numpy())
 
     pooled = np.concatenate(all_pooled, axis=0)
     labels = np.concatenate(all_labels, axis=0)
+    subjects = np.concatenate(all_subjects, axis=0)
 
     test_silhouette_score = float(silhouette_score(pooled, labels, metric="cosine"))
+    test_silhouette_score = float(silhouette_score(pooled, subjects, metric="cosine"))
 
     return {
         "loss": (loss_sum / num_samples).item(),
-        "silhouette_score": test_silhouette_score,
+        "gesture_silhouette_score": test_silhouette_score,
+        "subject_silhouette_score": test_silhouette_score,
         "embeddings": pooled,
         "labels": labels,
+        "subjects": subjects,
     }
 
 
-def log_embeddings(pooled, labels):
+def log_embeddings(pooled, labels, subjects):
     """Logs embeddings to wandb.
 
     Args:
@@ -188,17 +194,34 @@ def log_embeddings(pooled, labels):
         step: current training step or epoch.
     """
     tsne = TSNE(n_components=3, random_state=42, n_jobs=-1)
-    tsne_coords = tsne.fit_transform(pooled)
+    gesture_tsne_coords = tsne.fit_transform(pooled)
+    subject_tsne_coords = tsne.fit_transform(pooled)
 
     umap = UMAP(n_components=3, random_state=42, n_jobs=-1)
-    umap_coords = umap.fit_transform(pooled)
+    gesture_umap_coords = umap.fit_transform(pooled)
+    subject_umap_coords = umap.fit_transform(pooled)
 
-    tsne_points = np.concatenate([tsne_coords, labels.reshape(-1, 1)], axis=1)
-    umap_points = np.concatenate([umap_coords, labels.reshape(-1, 1)], axis=1)  # type: ignore
+    gesture_tsne_points = np.concatenate(
+        [gesture_tsne_coords, labels.reshape(-1, 1)], axis=1
+    )
+    subject_tsne_points = np.concatenate(
+        [subject_tsne_coords, subjects.reshape(-1, 1)], axis=1
+    )
+
+    gesture_umap_points = np.concatenate(
+        [gesture_umap_coords, labels.reshape(-1, 1)],  # type: ignore
+        axis=1,
+    )
+    subject_umap_points = np.concatenate(
+        [subject_umap_coords, subjects.reshape(-1, 1)],  # type: ignore
+        axis=1,
+    )
 
     return {
-        "tsne_embeddings": wandb.Object3D(tsne_points),
-        "umap_embeddings": wandb.Object3D(umap_points),
+        "gesture_tsne_embeddings": wandb.Object3D(gesture_tsne_points),
+        "subject_tsne_embeddings": wandb.Object3D(subject_tsne_points),
+        "gesture_umap_embeddings": wandb.Object3D(gesture_umap_points),
+        "subject_umap_embeddings": wandb.Object3D(subject_umap_points),
     }
 
 
@@ -335,7 +358,8 @@ def main():
             {
                 "train_loss": train_loss,
                 "test_loss": eval_metrics["loss"],
-                "test_silhouette": eval_metrics["silhouette_score"],
+                "test_gesture_silhouette": eval_metrics["gesture_silhouette_score"],
+                "test_subject_silhouette": eval_metrics["subject_silhouette_score"],
                 "learning_rate": scheduler.get_last_lr()[0],
             },
             step=epoch,
@@ -345,12 +369,23 @@ def main():
             embedding_coords = log_embeddings(
                 eval_metrics["embeddings"][pooled_indices],
                 eval_metrics["labels"][pooled_indices],
+                eval_metrics["subjects"][pooled_indices],
             )
 
             run.log(
                 {
-                    "test_tsne_embeddings": embedding_coords["tsne_embeddings"],
-                    "test_umap_embeddings": embedding_coords["umap_embeddings"],
+                    "test_gesture_tsne_embeddings": embedding_coords[
+                        "gesture_tsne_embeddings"
+                    ],
+                    "test_subject_tsne_embeddings": embedding_coords[
+                        "subject_tsne_embeddings"
+                    ],
+                    "test_gesture_umap_embeddings": embedding_coords[
+                        "gesture_umap_embeddings"
+                    ],
+                    "test_subject_umap_embeddings": embedding_coords[
+                        "subject_umap_embeddings"
+                    ],
                 },
                 step=epoch,
             )
