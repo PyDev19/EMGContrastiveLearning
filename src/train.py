@@ -75,7 +75,7 @@ def run_train_epoch(
     optimizer: Optimizer,
     device: torch.device,
     scaler: GradScaler,
-) -> float:
+):
     """Runs one training epoch of contrastive learning.
 
     Args:
@@ -90,7 +90,10 @@ def run_train_epoch(
     """
     model.train()
 
-    loss_sum = torch.zeros(1, device=device)
+    total_loss_sum = torch.zeros(1, device=device)
+    gesture_loss_sum = torch.zeros(1, device=device)
+    subject_loss_sum = torch.zeros(1, device=device)
+
     num_samples = 0
 
     for emg, emg_aug, labels, subjects in loader:
@@ -104,19 +107,26 @@ def run_train_epoch(
         with autocast(device_type=device.type, dtype=torch.bfloat16):
             _, z, z_subject = model(emg)
             _, z_aug, z_aug_subject = model(emg_aug)
-            gesture_loss = loss_fn(z, labels, z_aug=z_aug)
-            subject_loss = loss_fn(z_subject, subjects, z_aug=z_aug_subject)
-            loss = gesture_loss + subject_loss
 
-        scaler.scale(loss).backward()
+        gesture_loss = loss_fn(z, labels, z_aug=z_aug)
+        subject_loss = loss_fn(z_subject, subjects, z_aug=z_aug_subject)
+        total_loss = gesture_loss + subject_loss
+
+        scaler.scale(total_loss).backward()
         scaler.step(optimizer)
         scaler.update()
 
         batch_size = emg.size(0)
-        loss_sum += loss.detach() * batch_size  # stays on GPU, no sync per-batch
+        total_loss_sum += total_loss.detach() * batch_size
+        gesture_loss_sum += gesture_loss.detach() * batch_size
+        subject_loss_sum += subject_loss.detach() * batch_size
         num_samples += batch_size
 
-    return (loss_sum / num_samples).item()  # single sync at epoch end
+    return {
+        "total_loss": (total_loss_sum / num_samples).item(),
+        "gesture_loss": (gesture_loss_sum / num_samples).item(),
+        "subject_loss": (subject_loss_sum / num_samples).item(),
+    }
 
 
 @torch.no_grad()
@@ -142,7 +152,10 @@ def run_eval_epoch(
     """
     model.eval()
 
-    loss_sum = torch.zeros(1, device=device)
+    total_loss_sum = torch.zeros(1, device=device)
+    gesture_loss_sum = torch.zeros(1, device=device)
+    subject_loss_sum = torch.zeros(1, device=device)
+
     num_samples = 0
     all_pooled = []
     all_labels = []
@@ -155,12 +168,15 @@ def run_eval_epoch(
 
         with autocast(device_type=device.type, dtype=torch.bfloat16):
             h, z, z_subject = model(emg)
-            gesture_loss = loss_fn(z, labels)
-            subject_loss = loss_fn(z_subject, subjects)
-            loss = gesture_loss + subject_loss
+
+        gesture_loss = loss_fn(z, labels)
+        subject_loss = loss_fn(z_subject, subjects)
+        total_loss = gesture_loss + subject_loss
 
         batch_size = emg.size(0)
-        loss_sum += loss.detach() * batch_size
+        total_loss_sum += total_loss.detach() * batch_size
+        gesture_loss_sum += gesture_loss.detach() * batch_size
+        subject_loss_sum += subject_loss.detach() * batch_size
         num_samples += batch_size
 
         all_pooled.append(h.cpu().numpy())
@@ -171,13 +187,17 @@ def run_eval_epoch(
     labels = np.concatenate(all_labels, axis=0)
     subjects = np.concatenate(all_subjects, axis=0)
 
-    test_silhouette_score = float(silhouette_score(pooled, labels, metric="cosine"))
-    test_silhouette_score = float(silhouette_score(pooled, subjects, metric="cosine"))
+    gesture_silhouette_score = float(silhouette_score(pooled, labels, metric="cosine"))
+    subject_silhouette_score = float(
+        silhouette_score(pooled, subjects, metric="cosine")
+    )
 
     return {
-        "loss": (loss_sum / num_samples).item(),
-        "gesture_silhouette_score": test_silhouette_score,
-        "subject_silhouette_score": test_silhouette_score,
+        "total_loss": (total_loss_sum / num_samples).item(),
+        "gesture_loss": (gesture_loss_sum / num_samples).item(),
+        "subject_loss": (subject_loss_sum / num_samples).item(),
+        "gesture_silhouette_score": gesture_silhouette_score,
+        "subject_silhouette_score": subject_silhouette_score,
         "embeddings": pooled,
         "labels": labels,
         "subjects": subjects,
@@ -194,34 +214,28 @@ def log_embeddings(pooled, labels, subjects):
         step: current training step or epoch.
     """
     tsne = TSNE(n_components=3, random_state=42, n_jobs=-1)
-    gesture_tsne_coords = tsne.fit_transform(pooled)
-    subject_tsne_coords = tsne.fit_transform(pooled)
+    tsne_coords = tsne.fit_transform(pooled)
 
     umap = UMAP(n_components=3, random_state=42, n_jobs=-1)
-    gesture_umap_coords = umap.fit_transform(pooled)
-    subject_umap_coords = umap.fit_transform(pooled)
+    umap_coords = umap.fit_transform(pooled)
 
-    gesture_tsne_points = np.concatenate(
-        [gesture_tsne_coords, labels.reshape(-1, 1)], axis=1
-    )
-    subject_tsne_points = np.concatenate(
-        [subject_tsne_coords, subjects.reshape(-1, 1)], axis=1
-    )
+    gesture_tsne_points = np.concatenate([tsne_coords, labels.reshape(-1, 1)], axis=1)
+    subject_tsne_points = np.concatenate([tsne_coords, subjects.reshape(-1, 1)], axis=1)
 
     gesture_umap_points = np.concatenate(
-        [gesture_umap_coords, labels.reshape(-1, 1)],  # type: ignore
+        [umap_coords, labels.reshape(-1, 1)],  # type: ignore
         axis=1,
     )
     subject_umap_points = np.concatenate(
-        [subject_umap_coords, subjects.reshape(-1, 1)],  # type: ignore
+        [umap_coords, subjects.reshape(-1, 1)],  # type: ignore
         axis=1,
     )
 
     return {
-        "gesture_tsne_embeddings": wandb.Object3D(gesture_tsne_points),
-        "subject_tsne_embeddings": wandb.Object3D(subject_tsne_points),
-        "gesture_umap_embeddings": wandb.Object3D(gesture_umap_points),
-        "subject_umap_embeddings": wandb.Object3D(subject_umap_points),
+        "gesture_tsne": wandb.Object3D(gesture_tsne_points),
+        "subject_tsne": wandb.Object3D(subject_tsne_points),
+        "gesture_umap": wandb.Object3D(gesture_umap_points),
+        "subject_umap": wandb.Object3D(subject_umap_points),
     }
 
 
@@ -245,12 +259,12 @@ def linear_probe(
 
     train_h, train_labels = [], []
 
-    for emg, _, labels in train_loader:
+    for emg, _, labels, _ in train_loader:
         emg = emg.to(device)
         labels = labels.to(device)
 
         with autocast(device_type=device.type, dtype=torch.bfloat16):
-            h, _ = model(emg)
+            h, _, _ = model(emg)
 
         train_h.append(h.cpu().numpy())
         train_labels.append(labels.cpu().numpy())
@@ -337,11 +351,21 @@ def main():
     scaler = GradScaler(device=device.type)
 
     for epoch in range(1, config.num_epochs + 1):
-        train_loss = run_train_epoch(
+        train_metrics = run_train_epoch(
             model, train_loader, loss_fn, optimizer, device, scaler
         )
+
+        for key, value in train_metrics.items():
+            run.log({f"train/{key}": value}, step=epoch)
+
         scheduler.step()
+        run.log({"learning_rate": scheduler.get_last_lr()[0]}, step=epoch)
+
         eval_metrics = run_eval_epoch(model, test_loader, loss_fn, device)
+
+        for key, value in eval_metrics.items():
+            if key not in ["embeddings", "labels", "subjects"]:
+                run.log({f"test/{key}": value}, step=epoch)
 
         if (
             pooled_indices is None
@@ -354,17 +378,6 @@ def main():
                 random_state=42,
             )
 
-        run.log(
-            {
-                "train_loss": train_loss,
-                "test_loss": eval_metrics["loss"],
-                "test_gesture_silhouette": eval_metrics["gesture_silhouette_score"],
-                "test_subject_silhouette": eval_metrics["subject_silhouette_score"],
-                "learning_rate": scheduler.get_last_lr()[0],
-            },
-            step=epoch,
-        )
-
         if epoch % config.embeddings_log_freq == 0 and pooled_indices is not None:
             embedding_coords = log_embeddings(
                 eval_metrics["embeddings"][pooled_indices],
@@ -372,23 +385,8 @@ def main():
                 eval_metrics["subjects"][pooled_indices],
             )
 
-            run.log(
-                {
-                    "test_gesture_tsne_embeddings": embedding_coords[
-                        "gesture_tsne_embeddings"
-                    ],
-                    "test_subject_tsne_embeddings": embedding_coords[
-                        "subject_tsne_embeddings"
-                    ],
-                    "test_gesture_umap_embeddings": embedding_coords[
-                        "gesture_umap_embeddings"
-                    ],
-                    "test_subject_umap_embeddings": embedding_coords[
-                        "subject_umap_embeddings"
-                    ],
-                },
-                step=epoch,
-            )
+            for key, value in embedding_coords.items():
+                run.log({f"test_embeddings/{key}": value}, step=epoch)
 
         if epoch % config.linear_probe_freq == 0 and pooled_indices is not None:
             probe_results = linear_probe(
