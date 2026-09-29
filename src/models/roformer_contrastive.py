@@ -240,14 +240,15 @@ class RoFormerContrastiveModel(Module):
 
         pooled = x.mean(dim=1)
 
-        projected = self.projection_head(pooled) if return_projected else None
+        gresture_projection = None
+        subject_projection = None
 
-        subject_projection = self.subject_discriminator(pooled)
-        subject_projection = (
-            self.subject_head(subject_projection) if return_projected else None
-        )
+        if return_projected:
+            gresture_projection = self.projection_head(pooled)
+            subject_projection = self.subject_discriminator(pooled)
+            subject_projection = self.subject_head(subject_projection)
 
-        return pooled, projected, subject_projection
+        return pooled, gresture_projection, subject_projection
 
 
 if __name__ == "__main__":

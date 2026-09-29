@@ -73,7 +73,7 @@ class PhysioMioDataset(Dataset):
         gesture = self.gestures[trial_idx]
         gesture = gesture.long()  # (1,)
 
-        subject = self.subjects[trial_idx]
+        subject = self.subjects[trial_idx] - 1
         subject = subject.long()  # (1,)
 
         emg_window_aug = (
