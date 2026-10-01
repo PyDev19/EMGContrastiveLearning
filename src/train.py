@@ -213,6 +213,10 @@ def log_embeddings(pooled, labels, subjects):
         labels: corresponding labels of shape (N,).
         step: current training step or epoch.
     """
+    unique_subjects = np.unique(subjects)
+    subject_remap = {sid: i for i, sid in enumerate(unique_subjects)}
+    subjects_dense = np.array([subject_remap[s] for s in subjects])
+    
     tsne = TSNE(n_components=3, random_state=42, n_jobs=-1)
     tsne_coords = tsne.fit_transform(pooled)
 
@@ -220,14 +224,14 @@ def log_embeddings(pooled, labels, subjects):
     umap_coords = umap.fit_transform(pooled)
 
     gesture_tsne_points = np.concatenate([tsne_coords, labels.reshape(-1, 1)], axis=1)
-    subject_tsne_points = np.concatenate([tsne_coords, subjects.reshape(-1, 1)], axis=1)
+    subject_tsne_points = np.concatenate([tsne_coords, subjects_dense.reshape(-1, 1)], axis=1)
 
     gesture_umap_points = np.concatenate(
         [umap_coords, labels.reshape(-1, 1)],  # type: ignore
         axis=1,
     )
     subject_umap_points = np.concatenate(
-        [umap_coords, subjects.reshape(-1, 1)],  # type: ignore
+        [umap_coords, subjects_dense.reshape(-1, 1)],  # type: ignore
         axis=1,
     )
 
@@ -303,8 +307,8 @@ def linear_probe(
     lr_preds = lr_classifier.predict(test_h)
     knn_preds = knn_classifier.predict(test_h)
 
-    lr_metrics["subjects"] = f1_score(test_subjects, lr_preds)
-    knn_metrics["subjects"] = f1_score(test_subjects, knn_preds)
+    lr_metrics["subjects"] = f1_score(test_subjects, lr_preds, average="macro")
+    knn_metrics["subjects"] = f1_score(test_subjects, knn_preds, average="macro")
 
     return {"lr": lr_metrics, "knn": knn_metrics}
 
