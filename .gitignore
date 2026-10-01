@@ -8,3 +8,4 @@ old/*
 *.txt
 *.out
 wandb/
+*.err
