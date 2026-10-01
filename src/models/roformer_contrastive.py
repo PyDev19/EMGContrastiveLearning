@@ -197,7 +197,7 @@ class RoFormerContrastiveModel(Module):
             rescale(block.attn.projection.weight.data, layer_id + 1)  # type: ignore
             rescale(block.mlp.layers[-1].weight.data, layer_id + 1)  # type: ignore
 
-    def _init_weights(self, module: torch.nn.Module) -> None:
+    def _init_weights(self, module: Module) -> None:
         """Initialize the weights of the model.
 
         Args:

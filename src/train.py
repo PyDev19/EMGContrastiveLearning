@@ -4,10 +4,9 @@ from dataclasses import asdict
 
 import numpy as np
 import torch
-import wandb
 from sklearn.linear_model import LogisticRegression
 from sklearn.manifold import TSNE
-from sklearn.metrics import classification_report, silhouette_score
+from sklearn.metrics import classification_report, f1_score, silhouette_score
 from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
 from torch.amp.autocast_mode import autocast
@@ -17,6 +16,7 @@ from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.utils.data import DataLoader
 from umap import UMAP
 
+import wandb
 from src.config import ContrastiveTrainingConfig, load_training_config
 from src.datasets.physiomio import PhysioMioDataset
 from src.loss.supcon import SupervisedContrastiveLoss
@@ -245,6 +245,7 @@ def linear_probe(
     train_loader: DataLoader,
     test_h: np.ndarray,
     test_labels: np.ndarray,
+    test_subjects: np.ndarray,
     device: torch.device,
 ):
     """Trains a linear classifier on top of the frozen model's pooled embeddings and evaluates it.
@@ -257,49 +258,55 @@ def linear_probe(
     """
     model.eval()
 
-    train_h, train_labels = [], []
+    train_h, train_labels, train_subjects = [], [], []
 
-    for emg, _, labels, _ in train_loader:
+    for emg, _, labels, subjects in train_loader:
         emg = emg.to(device)
-        labels = labels.to(device)
 
         with autocast(device_type=device.type, dtype=torch.bfloat16):
             h, _, _ = model(emg)
 
         train_h.append(h.cpu().numpy())
         train_labels.append(labels.cpu().numpy())
+        train_subjects.append(subjects.cpu().numpy())
 
     train_h = np.concatenate(train_h, axis=0)
     train_labels = np.concatenate(train_labels, axis=0)
+    train_subjects = np.concatenate(train_subjects, axis=0)
 
-    clf = LogisticRegression(max_iter=1000, solver="lbfgs", n_jobs=-1)
-    clf.fit(train_h, train_labels)
+    lr_classifier = LogisticRegression(max_iter=1000, solver="lbfgs", n_jobs=-1)
+    lr_classifier.fit(train_h, train_labels)
 
-    knn = KNeighborsClassifier(n_neighbors=20, n_jobs=-1)
-    knn.fit(train_h, train_labels)
+    knn_classifier = KNeighborsClassifier(n_neighbors=20, n_jobs=-1)
+    knn_classifier.fit(train_h, train_labels)
 
-    lr_preds = clf.predict(test_h)
-    knn_preds = knn.predict(test_h)
+    lr_preds = lr_classifier.predict(test_h)
+    knn_preds = knn_classifier.predict(test_h)
 
-    lr_report = classification_report(
-        test_labels, lr_preds, output_dict=True, zero_division=0
-    )
-    knn_report = classification_report(
-        test_labels, knn_preds, output_dict=True, zero_division=0
-    )
+    lr_gesture_report = classification_report(test_labels, lr_preds, output_dict=True)
+    knn_gesture_report = classification_report(test_labels, knn_preds, output_dict=True)
 
-    lr = {}
-    knn = {}
+    lr_metrics = {}
+    knn_metrics = {}
 
-    for label, metrics in lr_report.items():  # type: ignore
+    for label, metrics in lr_gesture_report.items():  # type: ignore
         if label not in ["accuracy", "macro avg", "weighted avg"]:
-            lr[f"label_{label}"] = metrics["f1-score"]
+            lr_metrics[f"label_{label}"] = metrics["f1-score"]
 
-    for label, metrics in knn_report.items():  # type: ignore
+    for label, metrics in knn_gesture_report.items():  # type: ignore
         if label not in ["accuracy", "macro avg", "weighted avg"]:
-            knn[f"label_{label}"] = metrics["f1-score"]
+            knn_metrics[f"label_{label}"] = metrics["f1-score"]
 
-    return {"lr": lr, "knn": knn}
+    lr_classifier.fit(train_h, train_subjects)
+    knn_classifier.fit(train_h, train_subjects)
+
+    lr_preds = lr_classifier.predict(test_h)
+    knn_preds = knn_classifier.predict(test_h)
+
+    lr_metrics["subjects"] = f1_score(test_subjects, lr_preds)
+    knn_metrics["subjects"] = f1_score(test_subjects, knn_preds)
+
+    return {"lr": lr_metrics, "knn": knn_metrics}
 
 
 def main():
@@ -392,8 +399,9 @@ def main():
             probe_results = linear_probe(
                 model,
                 train_loader,
-                eval_metrics["embeddings"][pooled_indices],
-                eval_metrics["labels"][pooled_indices],
+                eval_metrics["embeddings"],
+                eval_metrics["labels"],
+                eval_metrics["subjects"],
                 device,
             )
 

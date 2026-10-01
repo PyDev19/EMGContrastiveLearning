@@ -6,7 +6,8 @@
 #SBATCH --mail-user=axm240143@utdallas.edu
 #SBATCH --mail-type=ALL
 #SBATCH --job-name=bep_train
-#SBATCH --output=bep_train.out
+#SBATCH --output=bep_train_%j.out
+#SBATCH --error=bep_train_%j.err
 
 module load miniconda
 
