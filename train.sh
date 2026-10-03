@@ -6,8 +6,8 @@
 #SBATCH --mail-user=axm240143@utdallas.edu
 #SBATCH --mail-type=ALL
 #SBATCH --job-name=bep_train
-#SBATCH --output=bep_train_%j.out
-#SBATCH --error=bep_train_%j.err
+#SBATCH --output=./slurm_logs/train_%j/log.out
+#SBATCH --error=./slurm_logs/train_%j/log.err
 
 module load miniconda
 
@@ -18,7 +18,7 @@ conda activate /groups/emeyers/.conda/envs/meyerlab
 SRC=/groups/emeyers/EMGContrastiveLearning/
 
 cd ~/scratch/blueprint_data/
-DATA_DIR=$(pwd)/impaired_arm_ungrouped_include_fma_zero
+DATA_DIR=$(pwd)/healthy_arm_ungrouped_include_fma_zero
 
 CONFIG=$SRC/configs/roformer_contrastive_physiomio.yaml
 
