@@ -9,12 +9,7 @@ from torch.nn import (
     Parameter,
 )
 
-from src.layers import (
-    MLP,
-    GradientReverseLayer,
-    PatchEmbeddings,
-)
-from src.layers.rope import RotaryTransformerBlock
+from src.layers import MLP, PatchEmbeddings, RotaryTransformerBlock
 from src.utils.types import ActivationName
 
 
@@ -100,16 +95,6 @@ class RoFormerContrastiveModel(Module):
             dropout=mlp_drop_prob,
         )
 
-        self.subject_discriminator = GradientReverseLayer()
-
-        self.subject_head = MLP(
-            input_dim=embed_dim,
-            hidden_dims=projection_hidden_dims,
-            output_dim=projection_dim,
-            activation=projection_activation,
-            dropout=mlp_drop_prob,
-        )
-
         torch.nn.init.trunc_normal_(self.channel_embed, std=0.02)
 
         self.apply(self._init_weights)
@@ -139,7 +124,7 @@ class RoFormerContrastiveModel(Module):
 
     def forward(
         self, x: torch.Tensor, return_projected: bool = True
-    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Forward pass for the RoFormerConstrastiveModel.
 
         Args:
@@ -147,7 +132,7 @@ class RoFormerContrastiveModel(Module):
             return_projected (bool): Whether to return the projected features.
 
         Returns:
-            tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]: A tuple containing the pooled features, the projected features, and the subject projection.
+            tuple[torch.Tensor, torch.Tensor | None]: A tuple containing the pooled features and the projected features.
         """
         x = self.patch_embedding(x)
         B, C, P, D = x.shape
@@ -166,15 +151,9 @@ class RoFormerContrastiveModel(Module):
 
         pooled = x.mean(dim=1)
 
-        gresture_projection = None
-        subject_projection = None
+        projection = self.projection_head(pooled) if return_projected else None
 
-        if return_projected:
-            gresture_projection = self.projection_head(pooled)
-            subject_projection = self.subject_discriminator(pooled)
-            subject_projection = self.subject_head(subject_projection)
-
-        return pooled, gresture_projection, subject_projection
+        return pooled, projection
 
 
 if __name__ == "__main__":
