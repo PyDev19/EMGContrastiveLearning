@@ -55,3 +55,7 @@ def main():
             raise NotImplementedError(f"No trainer for {config.task}")
 
     trainer.train()
+
+
+if __name__ == "__main__":
+    main()
