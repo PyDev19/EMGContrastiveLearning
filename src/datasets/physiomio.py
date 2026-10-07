@@ -7,11 +7,12 @@ from torch.utils.data.dataset import Dataset
 
 from src.utils.augmentations import Augmentations
 from src.utils.normalization import Normalizer
-from src.utils.registers import NORMALIZERS
+from src.utils.registers import DATASETS, NORMALIZERS, register
 from src.utils.signal_processing import calculate_window_indices, rms_transform
 from src.utils.types import WindowOpts
 
 
+@register(DATASETS, "physiomio")
 class PhysioMioDataset(Dataset):
     def __init__(
         self,

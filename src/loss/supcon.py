@@ -1,7 +1,10 @@
 import torch
 from torch.nn import Module
 
+from src.utils.registers import LOSSES, register
 
+
+@register(LOSSES, "supervised_contrastive")
 class SupervisedContrastiveLoss(Module):
     def __init__(self, temperature: float):
         """Supervised Contrastive Loss (Khosla et al., https://arxiv.org/abs/2004.11362).
