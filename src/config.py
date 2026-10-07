@@ -1,9 +1,21 @@
-from dataclasses import dataclass
+import pathlib
+from dataclasses import asdict, dataclass
 from typing import Literal, cast
 
+import numpy as np
 from omegaconf import OmegaConf
+from torch.optim import AdamW
+from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.utils.data import DataLoader
 
-from src.utils.types import ActivationName, NormalizerName, WindowOpts
+from src.utils.augmentations import Augmentations
+from src.utils.registers import DATASETS, LOSSES, MODELS, NORMALIZERS
+from src.utils.types import (
+    ActivationName,
+    DatasetName,
+    NormalizerName,
+    WindowOpts,
+)
 
 
 @dataclass
@@ -14,7 +26,7 @@ class DatasetArgs:
 
 @dataclass
 class DatasetConfig:
-    name: Literal["physiomio"]
+    name: DatasetName
     args: DatasetArgs
 
 
@@ -39,20 +51,8 @@ class RoFormerContrastiveModelArgs:
 
 
 @dataclass
-class ModelConfig:
-    name: Literal["roformer_contrastive"]
-    args: RoFormerContrastiveModelArgs
-
-
-@dataclass
 class SupervisedContrastiveLossArgs:
     temperature: float
-
-
-@dataclass
-class LossConfig:
-    name: Literal["supervised_contrastive"]
-    args: SupervisedContrastiveLossArgs
 
 
 @dataclass
@@ -69,54 +69,163 @@ class WandbConfig:
 
 
 @dataclass
-class SchedulerConfig:
-    T_0: int
-    T_mult: int
-    eta_min: float
+class TimeContrastiveModelConfig:
+    name: Literal["roformer_time_contrastive"]
+    args: RoFormerContrastiveModelArgs
 
 
 @dataclass
-class ContrastiveTrainingConfig:
-    task: Literal["contrastive"]
+class TimeDomainAdversarialModelConfig:
+    name: Literal["roformer_time_domain_adversial_contrastive"]
+    args: RoFormerContrastiveModelArgs
+
+
+@dataclass
+class TimeContrastiveTrainingConfig:
+    task: Literal["time_contrastive"]
     batch_size: int
     num_epochs: int
     max_embedding_samples: int
     embeddings_log_freq: int
     linear_probe_freq: int
-    normalizer: NormalizerName
 
+    normalizer: NormalizerName
     dataset: DatasetConfig
-    model: ModelConfig
-    loss: LossConfig
+    model: TimeContrastiveModelConfig
+    loss: SupervisedContrastiveLossArgs
     optimizer: OptimizerArgs
-    scheduler: SchedulerConfig
     wandb: WandbConfig
 
 
-def load_training_config(config_path: str) -> ContrastiveTrainingConfig:
-    """Load and validate a contrastive-training config from YAML. Every field
-    is required — no defaults are baked into the schema, so every experiment
-    YAML is fully self-documenting and sweep-friendly.
+@dataclass
+class TimeDomainAdversarialTrainingConfig:
+    task: Literal["time_domain_adversial_contrastive"]
+    batch_size: int
+    num_epochs: int
+    max_embedding_samples: int
+    embeddings_log_freq: int
+    linear_probe_freq: int
+
+    normalizer: NormalizerName
+    dataset: DatasetConfig
+    model: TimeDomainAdversarialModelConfig
+    loss: SupervisedContrastiveLossArgs
+    optimizer: OptimizerArgs
+    wandb: WandbConfig
+
+
+TrainingConfig = TimeContrastiveTrainingConfig | TimeDomainAdversarialTrainingConfig
+
+_TASK_SCHEMA_MAP: dict[str, type] = {
+    "time_contrastive": TimeContrastiveTrainingConfig,
+    "time_domain_adversial_contrastive": TimeDomainAdversarialTrainingConfig,
+}
+
+
+def load_training_config(config_path: str) -> TrainingConfig:
+    """Load and validate a training config from YAML, dispatching to the schema
+    matching the top-level `task` field. Because each task variant's `model`
+    field is restricted to a Literal of only that task's valid model name(s),
+    a mismatched task/model pairing fails OmegaConf's structured-config
+    validation directly — no separate runtime cross-check needed.
 
     Args:
         config_path (str): Path to the YAML configuration file.
 
     Returns:
-        ContrastiveTrainingConfig: the validated, fully-typed training config.
+        TrainingConfig: the validated, fully-typed training config.
 
     Raises:
-        ValueError: if `task` is missing or not "contrastive".
+        ValueError: if `task` is missing or not a recognized task name.
     """
     raw = OmegaConf.load(config_path)
 
     task = OmegaConf.select(raw, "task")
-    if task != "contrastive":
+    if task not in _TASK_SCHEMA_MAP:
         raise ValueError(
-            f"Unknown or missing 'task' in config: {task!r}. Expected 'contrastive'."
+            f"Unknown or missing 'task': {task!r}. Expected one of {list(_TASK_SCHEMA_MAP)}."
         )
 
-    merged = OmegaConf.merge(OmegaConf.structured(ContrastiveTrainingConfig), raw)
-    return cast(ContrastiveTrainingConfig, OmegaConf.to_object(merged))
+    schema = _TASK_SCHEMA_MAP[task]
+    merged = OmegaConf.merge(OmegaConf.structured(schema), raw)
+    return cast(TrainingConfig, OmegaConf.to_object(merged))
+
+
+def build_dataloaders(config: TrainingConfig, data_dir: pathlib.Path):
+    normalizer = NORMALIZERS[config.normalizer]()
+    augmentations = Augmentations()
+
+    if config.dataset.name == "physiomio":
+        patients = list(range(1, 49))
+        test_patient = np.random.choice(patients, size=5, replace=False).tolist()
+        train_patients = [p for p in patients if p not in test_patient]
+    else:
+        raise NotImplementedError(
+            f"Patient splitting for '{config.dataset.name}' not yet implemented"
+        )
+
+    train_dataset = DATASETS[config.dataset.name](
+        data_dir=data_dir,
+        patient_ids=train_patients,
+        normalizer=normalizer,
+        augmentations=augmentations,
+        **asdict(config.dataset.args),
+    )
+
+    test_dataset = DATASETS[config.dataset.name](
+        data_dir=data_dir,
+        patient_ids=test_patient,
+        normalizer=normalizer,
+        augmentations=augmentations,
+        **asdict(config.dataset.args),
+    )
+
+    train_dataloader = DataLoader(
+        train_dataset,
+        batch_size=config.batch_size,
+        shuffle=True,
+        num_workers=4,
+        pin_memory=True,
+    )
+
+    test_dataloader = DataLoader(
+        test_dataset,
+        batch_size=config.batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=True,
+    )
+
+    return train_dataloader, test_dataloader
+
+
+def build_model_optimizer_scheduler(config: TrainingConfig):
+    match config:
+        case TimeContrastiveTrainingConfig():
+            model = MODELS[config.model.name](**asdict(config.model.args))
+        case TimeDomainAdversarialTrainingConfig():
+            model = MODELS[config.model.name](**asdict(config.model.args))
+        case _:
+            raise ValueError(f"Unhandled training config variant: {type(config)}")
+
+    optimizer = AdamW(
+        model.parameters(),
+        lr=config.optimizer.learning_rate,
+        weight_decay=config.optimizer.weight_decay,
+    )
+    scheduler = CosineAnnealingLR(optimizer, T_max=config.num_epochs)
+
+    return model, optimizer, scheduler
+
+
+def build_loss(config: TrainingConfig):
+    match config:
+        case TimeContrastiveTrainingConfig():
+            return LOSSES["supervised_contrastive"](**asdict(config.loss))
+        case TimeDomainAdversarialTrainingConfig():
+            return LOSSES["supervised_contrastive"](**asdict(config.loss))
+        case _:
+            raise ValueError(f"Unhandled training config variant: {type(config)}")
 
 
 if __name__ == "__main__":
