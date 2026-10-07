@@ -36,7 +36,7 @@ class RoFormerContrastiveModelArgs:
     channels: int
     patch_size: int
     embed_dim: int
-    hidden_dims: list[int]
+    hidden_dim: int
     projection_dim: int
     projection_hidden_dims: list[int]
     num_heads: int
@@ -46,7 +46,6 @@ class RoFormerContrastiveModelArgs:
     drop_path_prob: float
     mlp_drop_prob: float
     qkv_bias: bool
-    mlp_activation: ActivationName
     projection_activation: ActivationName
 
 
