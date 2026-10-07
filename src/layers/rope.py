@@ -2,8 +2,7 @@ import torch
 import torch.nn.functional as F
 from torch.nn import Dropout, LayerNorm, Linear, Module
 
-from src.layers import MLP, DropPath
-from src.utils.types import ActivationName
+from src.layers import DropPath, SwiGLU
 
 
 class RotaryPositionalEmbeddings(Module):
@@ -162,21 +161,18 @@ class RotaryTransformerBlock(Module):
     def __init__(
         self,
         dim: int,
-        hidden_dims: list[int],
+        hidden_dim: int,
         num_heads: int,
         proj_drop_prob: float,
         attn_drop_prob: float,
         drop_path_prob: float,
-        mlp_drop_prob: float,
-        mlp_activation: ActivationName = "gelu",
         qkv_bias: bool = False,
     ):
         """Individual transformer block using RoPE self-attention and an MLP with residual connections.
 
         Args:
             dim (int): embedding dimension of the input and output of the block.
-            hidden_dims (list[int]): hidden dimensions of the MLP within the block.
-                len(hidden_dims) determines the number of hidden layers in the MLP.
+            hidden_dim (int): hidden dimension of the SwiGLU within the block.
             num_heads (int): number of attention heads; must evenly divide dim.
             proj_drop_prob (float): dropout probability for the attention projection.
             attn_drop_prob (float): dropout probability for the attention weights.
@@ -200,12 +196,10 @@ class RotaryTransformerBlock(Module):
 
         self.norm2 = LayerNorm(dim)
 
-        self.mlp = MLP(
+        self.swiglu = SwiGLU(
             input_dim=dim,
-            hidden_dims=hidden_dims,
+            hidden_dim=(2 * hidden_dim) // 3,
             output_dim=dim,
-            activation=mlp_activation,
-            dropout=mlp_drop_prob,
         )
 
     def forward(
@@ -227,7 +221,7 @@ class RotaryTransformerBlock(Module):
         x = x + self.drop_path1(
             self.attn(self.norm1(x), pos_ids=pos_ids, attn_mask=attn_mask)
         )
-        x = x + self.drop_path2(self.mlp(self.norm2(x)))
+        x = x + self.drop_path2(self.swiglu(self.norm2(x)))
         return x
 
 

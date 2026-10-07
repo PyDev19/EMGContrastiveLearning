@@ -3,6 +3,7 @@ from src.layers.gradient_reversal import GradientReverseLayer
 from src.layers.mlp import MLP
 from src.layers.patch_embeddings import PatchEmbeddings
 from src.layers.rope import RotaryTransformerBlock
+from src.layers.swiglu import SwiGLU
 
 __all__ = [
     "MLP",
@@ -10,4 +11,5 @@ __all__ = [
     "GradientReverseLayer",
     "PatchEmbeddings",
     "RotaryTransformerBlock",
+    "SwiGLU",
 ]
