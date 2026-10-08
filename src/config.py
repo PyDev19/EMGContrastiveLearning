@@ -166,6 +166,9 @@ def build_dataloaders(config: TrainingConfig, data_dir: pathlib.Path):
             f"Patient splitting for '{config.dataset.name}' not yet implemented"
         )
 
+    print(f"Train patients: {train_patients}")
+    print(f"Test patients: {test_patient}")
+
     train_dataset = DATASETS[config.dataset.name](
         data_dir=data_dir,
         patient_ids=train_patients,
@@ -181,6 +184,9 @@ def build_dataloaders(config: TrainingConfig, data_dir: pathlib.Path):
         augmentations=augmentations,
         **asdict(config.dataset.args),
     )
+
+    print(f"Train samples: {len(train_dataset)}")
+    print(f"Test samples: {len(test_dataset)}")
 
     train_dataloader = DataLoader(
         train_dataset,
