@@ -87,6 +87,7 @@ class TimeContrastiveTrainingConfig:
     task: Literal["time_contrastive"]
     batch_size: int
     num_epochs: int
+    accumulation_steps: int
     max_embedding_samples: int
     embeddings_log_freq: int
     linear_probe_freq: int
@@ -104,6 +105,7 @@ class TimeDomainAdversarialTrainingConfig:
     task: Literal["time_domain_adversial_contrastive"]
     batch_size: int
     num_epochs: int
+    accumulation_steps: int
     max_embedding_samples: int
     embeddings_log_freq: int
     linear_probe_freq: int

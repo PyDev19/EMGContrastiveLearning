@@ -36,10 +36,10 @@ class BaseContrastiveTrainer(ABC):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.scaler = GradScaler()
 
-        self.model = model.to(self.device)
+        self.model = torch.compile(model.to(self.device))
         self.optimizer = optimizer
         self.scheduler = scheduler
-        self.loss_fn = loss_fn
+        self.loss_fn = torch.compile(loss_fn)
         self.train_dataloader = train_dataloader
         self.test_dataloader = test_dataloader
         self.config = config
@@ -51,9 +51,10 @@ class BaseContrastiveTrainer(ABC):
 
     def _stratified_subsample(self, h_arr: np.ndarray, labels_arr: np.ndarray) -> None:
         if self.pooled_indices is None:
+            train_size = min(self.config.max_embedding_samples, len(h_arr))
             self.pooled_indices, _ = train_test_split(
                 np.arange(len(h_arr)),
-                train_size=self.config.max_embedding_samples,
+                train_size=train_size,
                 stratify=labels_arr,
                 random_state=42,
             )
@@ -153,12 +154,11 @@ class TimeContrastiveTrainer(BaseContrastiveTrainer):
         g_loss_sum = torch.zeros(1, device=self.device)
         num_samples = 0
 
-        for emg, emg_aug, labels, _ in self.train_dataloader:
+        self.optimizer.zero_grad()
+        for i, (emg, emg_aug, labels, _) in enumerate(self.train_dataloader):
             emg = emg.to(self.device)
             emg_aug = emg_aug.to(self.device)
             labels = labels.to(self.device)
-
-            self.optimizer.zero_grad()
 
             with autocast(device_type=self.device.type, dtype=torch.bfloat16):
                 _, z = self.model(emg)
@@ -166,9 +166,13 @@ class TimeContrastiveTrainer(BaseContrastiveTrainer):
 
             g_loss = self.loss_fn(z.float(), labels, z_aug=z_aug.float())
 
-            self.scaler.scale(g_loss).backward()
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
+            # self.scaler.scale(g_loss).backward()
+            # self.scaler.step(self.optimizer)
+            # self.scaler.update()
+            (g_loss / self.config.accumulation_steps).backward()
+            if (i + 1) % self.config.accumulation_steps == 0:
+                self.optimizer.step()
+                self.optimizer.zero_grad()
 
             batch_size = emg.size(0)
             g_loss_sum += g_loss.detach() * batch_size
