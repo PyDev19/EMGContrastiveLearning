@@ -1,9 +1,6 @@
 import torch
 import torch.nn.functional as F
-from torch.nn import Dropout, LayerNorm, Linear, Module
-
-from src.layers.drop_path import DropPath
-from src.layers.swiglu import SwiGLU
+from torch.nn import Dropout, Linear, Module
 
 
 class RotaryPositionalEmbeddings(Module):
@@ -155,74 +152,6 @@ class RotarySelfAttentionBlock(Module):
         x = self.projection(x)
         x = self.projection_dropout(x)
 
-        return x
-
-
-class RotaryTransformerBlock(Module):
-    def __init__(
-        self,
-        dim: int,
-        hidden_dim: int,
-        num_heads: int,
-        proj_drop_prob: float,
-        attn_drop_prob: float,
-        drop_path_prob: float,
-        qkv_bias: bool = False,
-    ):
-        """Individual transformer block using RoPE self-attention and an MLP with residual connections.
-
-        Args:
-            dim (int): embedding dimension of the input and output of the block.
-            hidden_dim (int): hidden dimension of the SwiGLU within the block.
-            num_heads (int): number of attention heads; must evenly divide dim.
-            proj_drop_prob (float): dropout probability for the attention projection.
-            attn_drop_prob (float): dropout probability for the attention weights.
-            drop_path_prob (float): stochastic depth probability for each block.
-            mlp_drop_prob (float): dropout probability for the MLP layers.
-            mlp_activation (str, optional): activation function for the MLP. Defaults to "gelu".
-            qkv_bias (bool, optional): whether to include a bias term in the QKV projection. Defaults to False.
-        """
-        super().__init__()
-        self.norm1 = LayerNorm(dim)
-        self.attn = RotarySelfAttentionBlock(
-            dim=dim,
-            num_heads=num_heads,
-            qkv_bias=qkv_bias,
-            attn_drop_prob=attn_drop_prob,
-            proj_drop_prob=proj_drop_prob,
-        )
-
-        self.drop_path1 = DropPath(drop_path_prob)
-        self.drop_path2 = DropPath(drop_path_prob)
-
-        self.norm2 = LayerNorm(dim)
-
-        self.swiglu = SwiGLU(
-            input_dim=dim,
-            hidden_dim=(2 * hidden_dim) // 3,
-            output_dim=dim,
-        )
-
-    def forward(
-        self,
-        x: torch.Tensor,
-        pos_ids: torch.Tensor | None = None,
-        attn_mask: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        """Forward pass for the RotaryTransformerBlock.
-
-        Args:
-            x (torch.Tensor): Input tensor of shape (batch_size, seq_length, dim).
-            pos_ids (torch.Tensor, optional): Positional IDs for the input sequence. Defaults to None.
-            attn_mask (torch.Tensor, optional): Attention mask to apply to the attention weights. Defaults to None.
-
-        Returns:
-            torch.Tensor: Output tensor of shape (batch_size, seq_length, dim).
-        """
-        x = x + self.drop_path1(
-            self.attn(self.norm1(x), pos_ids=pos_ids, attn_mask=attn_mask)
-        )
-        x = x + self.drop_path2(self.swiglu(self.norm2(x)))
         return x
 
 
