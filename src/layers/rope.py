@@ -2,7 +2,8 @@ import torch
 import torch.nn.functional as F
 from torch.nn import Dropout, LayerNorm, Linear, Module
 
-from src.layers import DropPath, SwiGLU
+from src.layers.drop_path import DropPath
+from src.layers.swiglu import SwiGLU
 
 
 class RotaryPositionalEmbeddings(Module):
