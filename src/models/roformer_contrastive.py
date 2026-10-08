@@ -223,30 +223,3 @@ class RoFormerTimeDomainAdversialContrastiveModel(Module):
             domain_projection = self.domain_adversial_head(domain_projection)
 
         return pooled, projection, domain_projection
-
-
-if __name__ == "__main__":
-    from torchinfo import summary
-
-    model = RoFormerTimeContrastiveModel(
-        time_steps=1024,
-        channels=64,
-        embed_dim=256,
-        patch_size=64,
-        hidden_dim=1024,
-        projection_hidden_dims=[256],
-        projection_dim=128,
-        num_heads=4,
-        num_layers=8,
-        proj_drop_prob=0.3,
-        attn_drop_prob=0.3,
-        drop_path_prob=0.3,
-        mlp_drop_prob=0.3,
-    )
-
-    summary(
-        model,
-        input_size=[(1, 64, 1024)],
-        depth=4,
-        col_names=["input_size", "output_size", "num_params"],
-    )
