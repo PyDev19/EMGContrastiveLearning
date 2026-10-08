@@ -30,6 +30,7 @@ class RoFormerTimeContrastiveModel(Module):
         attn_drop_prob: float,
         drop_path_prob: float,
         mlp_drop_prob: float,
+        qkv_bias: bool = False,
         projection_activation: ActivationName = "silu",
     ):
         """ViT-style transformer using RoPE self-attention for contrastive pretraining
@@ -70,6 +71,7 @@ class RoFormerTimeContrastiveModel(Module):
             proj_drop_prob=proj_drop_prob,
             attn_drop_prob=attn_drop_prob,
             drop_path_prob=drop_path_prob,
+            qkv_bias=qkv_bias,
         )
 
         self.projection_head = MLP(
@@ -129,6 +131,7 @@ class RoFormerTimeDomainAdversialContrastiveModel(Module):
         attn_drop_prob: float,
         drop_path_prob: float,
         mlp_drop_prob: float,
+        qkv_bias: bool = False,
         projection_activation: ActivationName = "silu",
     ):
         """ViT-style transformer using RoPE self-attention for contrastive pretraining
@@ -168,6 +171,7 @@ class RoFormerTimeDomainAdversialContrastiveModel(Module):
             proj_drop_prob=proj_drop_prob,
             attn_drop_prob=attn_drop_prob,
             drop_path_prob=drop_path_prob,
+            qkv_bias=qkv_bias,
         )
 
         self.projection_head = MLP(
