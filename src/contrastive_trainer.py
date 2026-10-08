@@ -9,20 +9,29 @@ from sklearn.metrics import classification_report, silhouette_score
 from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
 from torch.amp import GradScaler, autocast
+from torch.optim import AdamW
+from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.utils.data import DataLoader
 from umap import UMAP
+
+from src.config import (
+    TimeContrastiveTrainingConfig,
+    TimeDomainAdversarialTrainingConfig,
+)
+from src.loss import SupervisedContrastiveLoss
 
 
 class BaseContrastiveTrainer(ABC):
     def __init__(
         self,
         model,
-        optimizer,
-        scheduler,
-        loss_fn,
-        train_dataloader,
-        test_dataloader,
-        config,
-        run,
+        optimizer: AdamW,
+        scheduler: CosineAnnealingLR,
+        loss_fn: SupervisedContrastiveLoss,
+        train_dataloader: DataLoader,
+        test_dataloader: DataLoader,
+        config: TimeContrastiveTrainingConfig | TimeDomainAdversarialTrainingConfig,
+        run: wandb.Run,
     ):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.scaler = GradScaler()
@@ -116,10 +125,10 @@ class BaseContrastiveTrainer(ABC):
         }
 
     @abstractmethod
-    def _train_epoch(self): ...
+    def _train_epoch(self) -> dict[str, float]: ...
 
     @abstractmethod
-    def _eval_epoch(self): ...
+    def _eval_epoch(self) -> dict[str, float]: ...
 
     def train(self):
         for epoch in range(1, self.config.num_epochs + 1):
@@ -139,7 +148,7 @@ class BaseContrastiveTrainer(ABC):
 
 
 class TimeContrastiveTrainer(BaseContrastiveTrainer):
-    def _train_epoch(self) -> dict:
+    def _train_epoch(self):
         self.model.train()
         g_loss_sum = torch.zeros(1, device=self.device)
         num_samples = 0
@@ -168,7 +177,7 @@ class TimeContrastiveTrainer(BaseContrastiveTrainer):
         return {"train/gesture_loss": (g_loss_sum / num_samples).item()}
 
     @torch.no_grad()
-    def _eval_epoch(self) -> dict:
+    def _eval_epoch(self):
         self.model.eval()
         h_arr, labels_arr = [], []
         loss_sum = torch.zeros(1, device=self.device)
@@ -193,7 +202,9 @@ class TimeContrastiveTrainer(BaseContrastiveTrainer):
         h_arr = np.concatenate(h_arr, axis=0)
         labels_arr = np.concatenate(labels_arr, axis=0)
 
-        gesture_silhouette_score = float(silhouette_score(h_arr, labels_arr, metric="cosine"))
+        gesture_silhouette_score = float(
+            silhouette_score(h_arr, labels_arr, metric="cosine")
+        )
         self._stratified_subsample(h_arr, labels_arr)
 
         return {
