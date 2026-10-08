@@ -8,6 +8,9 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
+from src.datasets import *
+from src.loss import *
+from src.models import *
 from src.utils.augmentations import Augmentations
 from src.utils.registers import DATASETS, LOSSES, MODELS, NORMALIZERS
 from src.utils.types import (
