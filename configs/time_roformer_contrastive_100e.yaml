@@ -1,6 +1,6 @@
 task: time_contrastive
-batch_size: 1024
-accumulation_steps: 4
+batch_size: 4096
+accumulation_steps: 1
 num_epochs: 100
 normalizer: zscore
 max_embedding_samples: 5000

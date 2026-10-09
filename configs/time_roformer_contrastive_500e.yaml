@@ -1,0 +1,47 @@
+task: time_contrastive
+batch_size: 4096
+accumulation_steps: 1
+num_epochs: 500
+normalizer: zscore
+max_embedding_samples: 5000
+embeddings_log_freq: 10
+linear_probe_freq: 25
+
+dataset:
+    name: physiomio
+    args:
+        window_opts:
+            size: 512
+            stride: 256
+        rms_opts: null
+
+model:
+    name: roformer_time_contrastive
+    args:
+        time_steps: 512
+        channels: 64
+        patch_size: 64
+        embed_dim: 256
+        hidden_dim: 512
+        projection_dim: 128
+        projection_hidden_dims: [256]
+        num_heads: 4
+        num_layers: 4
+        proj_drop_prob: 0.3
+        attn_drop_prob: 0.3
+        drop_path_prob: 0.3
+        mlp_drop_prob: 0.3
+        qkv_bias: false
+        projection_activation: silu
+
+loss:
+    temperature: 0.07
+
+optimizer:
+    learning_rate: 1.0e-4
+    weight_decay: 1.0e-2
+
+wandb:
+    entity: atharvamishra-university-of-texas-at-dallas
+    project: ProjectBlueprint
+    log_freq: 10
