@@ -17,11 +17,8 @@ conda activate /groups/emeyers/.conda/envs/meyerlab
 
 SRC=/groups/emeyers/EMGContrastiveLearning/
 
-cd ~/scratch/blueprint_data/
-DATA_DIR=$(pwd)/healthy_arm_ungrouped_include_fma_zero
-
-CONFIG=$SRC/configs/roformer_contrastive_physiomio.yaml
-
 cd $SRC
 
-python -m src.train --data-dir $DATA_DIR --config $CONFIG
+export LD_LIBRARY_PATH=/opt/ohpc/pub/compiler/gcc/14.2.0/lib64:$LD_LIBRARY_PATH
+
+python -m src.train --data-dir $1 --config $2
