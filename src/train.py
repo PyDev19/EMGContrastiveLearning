@@ -5,8 +5,8 @@ from dataclasses import asdict
 
 import numpy as np
 import torch
-import wandb
 
+import wandb
 from src.config import (
     build_dataloaders,
     build_loss,
@@ -17,6 +17,8 @@ from src.contrastive_trainer import TimeContrastiveTrainer
 
 
 def main():
+    torch.set_float32_matmul_precision('high')
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", type=pathlib.Path, required=True)
     parser.add_argument("--config", type=str, required=True)
@@ -37,7 +39,7 @@ def main():
         name=f"{config.task}_{datetime.datetime.now(tz=datetime.UTC).strftime('%Y%m%d_%H%M%S')}",
         config={**asdict(config)},
     )
-    run.watch(model, loss_fn, log="all", log_freq=config.wandb.log_freq)
+    # run.watch(model, loss_fn, log="all", log_freq=config.wandb.log_freq)
 
     match config.task:
         case "time_contrastive":

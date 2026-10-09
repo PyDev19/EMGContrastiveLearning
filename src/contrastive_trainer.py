@@ -2,18 +2,19 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 import torch
-import wandb
 from sklearn.linear_model import LogisticRegression
 from sklearn.manifold import TSNE
 from sklearn.metrics import classification_report, silhouette_score
 from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
-from torch.amp import GradScaler, autocast
+from torch.amp import autocast
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 from umap import UMAP
 
+import wandb
 from src.config import (
     TimeContrastiveTrainingConfig,
     TimeDomainAdversarialTrainingConfig,
@@ -34,7 +35,6 @@ class BaseContrastiveTrainer(ABC):
         run: wandb.Run,
     ):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.scaler = GradScaler()
 
         self.model = torch.compile(model.to(self.device))
         self.optimizer = optimizer
@@ -49,24 +49,32 @@ class BaseContrastiveTrainer(ABC):
         self.pooled_embeddings: np.ndarray | None = None
         self.pooled_labels: np.ndarray | None = None
 
+        self.epoch = 0
+
     def _stratified_subsample(self, h_arr: np.ndarray, labels_arr: np.ndarray) -> None:
         if self.pooled_indices is None:
-            train_size = min(self.config.max_embedding_samples, len(h_arr))
-            self.pooled_indices, _ = train_test_split(
-                np.arange(len(h_arr)),
-                train_size=train_size,
-                stratify=labels_arr,
-                random_state=42,
-            )
+            n = len(h_arr)
+            n_classes = len(np.unique(labels_arr))
 
+            train_size = min(self.config.max_embedding_samples, n - n_classes)
+
+            if train_size >= n_classes:
+                self.pooled_indices, _ = train_test_split(
+                    np.arange(len(h_arr)),
+                    train_size=train_size,
+                    stratify=labels_arr,
+                    random_state=42,
+                )
+            else:
+                self.pooled_indices = np.arange(n)
         self.pooled_embeddings = h_arr[self.pooled_indices]
         self.pooled_labels = labels_arr[self.pooled_indices]
 
     def _project_embeddings(self) -> dict:
-        tsne = TSNE(n_components=3, random_state=42, n_jobs=-1)
+        tsne = TSNE(n_components=3, random_state=42)
         tsne_coords = tsne.fit_transform(self.pooled_embeddings)
 
-        umap = UMAP(n_components=3, random_state=42, n_jobs=-1)
+        umap = UMAP(n_components=3, random_state=42)
         umap_coords = umap.fit_transform(self.pooled_embeddings)
 
         gesture_tsne_points = np.concatenate(
@@ -83,11 +91,14 @@ class BaseContrastiveTrainer(ABC):
         }
 
     @torch.no_grad()
-    def linear_probe(self) -> dict:
+    def _linear_probe(self) -> dict:
         self.model.eval()
         train_h, train_labels = [], []
 
-        for emg, _, labels, _ in self.train_dataloader:
+        for emg, _, labels, _ in tqdm(
+            self.train_dataloader,
+            desc=f"[Epoch {self.epoch}] Extracting train embeddings",
+        ):
             emg = emg.to(self.device)
             with autocast(device_type=self.device.type, dtype=torch.bfloat16):
                 h, _ = self.model(emg, return_projected=False)
@@ -113,17 +124,15 @@ class BaseContrastiveTrainer(ABC):
             self.pooled_labels, knn_preds, output_dict=True
         )
 
-        def extract_f1(report: dict) -> dict[str, float]:
-            return {
-                f"label_{label}": m["f1-score"]
-                for label, m in report.items()
-                if label not in ("accuracy", "macro avg", "weighted avg")
-            }
+        metrics: dict[str, float] = {}
+        for name, report in [("logreg", lr_report), ("knn", knn_report)]:
+            for label, m in report.items():  # pyright: ignore[reportAttributeAccessIssue]
+                if label in ("accuracy", "macro avg", "weighted avg"):
+                    continue
+                metrics[f"linear_probe/{name}/f1_{label}"] = m["f1-score"]
+            metrics[f"linear_probe/{name}/macro_f1"] = report["macro avg"]["f1-score"]  # pyright: ignore[reportArgumentType]
 
-        return {
-            "linear_probe/logreg": extract_f1(lr_report),  # pyright: ignore[reportArgumentType]
-            "linear_probe/knn": extract_f1(knn_report),  # pyright: ignore[reportArgumentType]
-        }
+        return metrics
 
     @abstractmethod
     def _train_epoch(self) -> dict[str, float]: ...
@@ -133,6 +142,8 @@ class BaseContrastiveTrainer(ABC):
 
     def train(self):
         for epoch in range(1, self.config.num_epochs + 1):
+            self.epoch = epoch
+
             self.run.log(self._train_epoch(), step=epoch)
             self.scheduler.step()
             self.run.log({"train/lr": self.scheduler.get_last_lr()[0]}, step=epoch)
@@ -143,7 +154,7 @@ class BaseContrastiveTrainer(ABC):
                 self.run.log(self._project_embeddings(), step=epoch)
 
             if epoch % self.config.linear_probe_freq == 0:
-                self.run.log(self.linear_probe(), step=epoch)
+                self.run.log(self._linear_probe(), step=epoch)
 
         self.run.finish()
 
@@ -155,7 +166,9 @@ class TimeContrastiveTrainer(BaseContrastiveTrainer):
         num_samples = 0
 
         self.optimizer.zero_grad()
-        for i, (emg, emg_aug, labels, _) in enumerate(self.train_dataloader):
+        for i, (emg, emg_aug, labels, _) in enumerate(
+            tqdm(self.train_dataloader, desc=f"[Epoch {self.epoch}] Training")
+        ):
             emg = emg.to(self.device)
             emg_aug = emg_aug.to(self.device)
             labels = labels.to(self.device)
@@ -166,11 +179,9 @@ class TimeContrastiveTrainer(BaseContrastiveTrainer):
 
             g_loss = self.loss_fn(z.float(), labels, z_aug=z_aug.float())
 
-            # self.scaler.scale(g_loss).backward()
-            # self.scaler.step(self.optimizer)
-            # self.scaler.update()
             (g_loss / self.config.accumulation_steps).backward()
-            if (i + 1) % self.config.accumulation_steps == 0:
+            is_last = (i + 1) == len(self.train_dataloader)
+            if (i + 1) % self.config.accumulation_steps == 0 or is_last:
                 self.optimizer.step()
                 self.optimizer.zero_grad()
 
@@ -187,7 +198,9 @@ class TimeContrastiveTrainer(BaseContrastiveTrainer):
         loss_sum = torch.zeros(1, device=self.device)
         num_samples = 0
 
-        for emg, _, labels, _ in self.test_dataloader:
+        for emg, _, labels, _ in tqdm(
+            self.test_dataloader, desc=f"[Epoch {self.epoch}] Evalutating"
+        ):
             emg = emg.to(self.device)
             labels_gpu = labels.to(self.device)
 
