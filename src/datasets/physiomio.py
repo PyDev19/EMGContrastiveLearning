@@ -52,7 +52,12 @@ class PhysioMioDataset(Dataset):
         ).long()  # (trials, 1)
 
         print(f"Normalizing sEMG signals with {normalizer.__class__.__name__}...")
-        self.raw_emgs = normalizer(self.raw_emgs) if normalizer else self.raw_emgs
+        if normalizer:
+            if normalizer._fitted:
+                self.raw_emgs = normalizer.transform_(self.raw_emgs)
+            else:
+                normalizer.fit(self.raw_emgs)
+                self.raw_emgs = normalizer.transform_(self.raw_emgs)
 
         print("Calculating sEMG window indicies...")
         self.window_indices = calculate_window_indices(self.raw_emgs, **window_opts)

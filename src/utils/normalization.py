@@ -29,6 +29,9 @@ class Normalizer(ABC):
     def fit(self, x: torch.Tensor) -> None: ...
 
     @abstractmethod
+    def set_stats(self, *stats: torch.Tensor) -> None: ...
+
+    @abstractmethod
     def transform(self, x: torch.Tensor) -> torch.Tensor: ...
 
     @abstractmethod
@@ -187,6 +190,11 @@ class MinMaxNormalizer(Normalizer):
         """
         self.max = torch.amax(x, dim=(0, 2)).reshape(1, -1, 1)
         self.min = torch.amin(x, dim=(0, 2)).reshape(1, -1, 1)
+        self._fitted = True
+
+    def set_stats(self, min: torch.Tensor, max: torch.Tensor):
+        self.min = min.reshape(1, -1, 1)
+        self.max = max.reshape(1, -1, 1)
         self._fitted = True
 
     def transform(self, x: torch.Tensor) -> torch.Tensor:
