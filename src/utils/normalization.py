@@ -31,6 +31,9 @@ class Normalizer(ABC):
     @abstractmethod
     def transform(self, x: torch.Tensor) -> torch.Tensor: ...
 
+    @abstractmethod
+    def transform_(self, x: torch.Tensor) -> torch.Tensor: ...
+
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
         """Runs ``fit`` if the normalizer hasn't been fit yet and then runs ``transform``
         to normalize the given tensor.
@@ -122,6 +125,11 @@ class ZScoreNormalizer(Normalizer):
         self.std = torch.std(x, dim=(0, 2)).reshape(1, -1, 1)
         self._fitted = True
 
+    def set_stats(self, mean: torch.Tensor, std: torch.Tensor):
+        self.mean = mean.reshape(1, -1, 1)
+        self.std = std.reshape(1, -1, 1)
+        self._fitted = True
+
     def transform(self, x: torch.Tensor) -> torch.Tensor:
         """Apply z-score normalization: ``(x - mean) / (std + eps)``.
 
@@ -138,6 +146,23 @@ class ZScoreNormalizer(Normalizer):
         """
         self._check_fitted()
         return (x - self.mean) / (self.std + self.eps)
+
+    def transform_(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply z-score normalization in-place: ``(x - mean) / (std + eps)``.
+
+        Args:
+            x: Tensor of shape ``(trials, channels, time)`` to normalize.
+                Must have the same number of channels as the tensor passed
+                to ``fit``.
+
+        Returns:
+            torch.Tensor: The normalized tensor, same shape as ``x``.
+
+        Raises:
+            RuntimeError: If ``fit`` has not been called yet.
+        """
+        self._check_fitted()
+        return x.sub_(self.mean).div_(self.std + self.eps)
 
 
 class MinMaxNormalizer(Normalizer):
@@ -180,3 +205,20 @@ class MinMaxNormalizer(Normalizer):
         """
         self._check_fitted()
         return (x - self.min) / (self.max - self.min + self.eps)
+
+    def transform_(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply min-max normalization in-place: ``(x - min) / (max - min + eps)``.
+
+        Args:
+            x: Tensor of shape ``(trials, channels, time)`` to normalize.
+                Must have the same number of channels as the tensor passed
+                to ``fit``.
+
+        Returns:
+            torch.Tensor: The normalized tensor, same shape as ``x``.
+
+        Raises:
+            RuntimeError: If ``fit`` has not been called yet.
+        """
+        self._check_fitted()
+        return x.sub_(self.min).div_(self.max - self.min + self.eps)
