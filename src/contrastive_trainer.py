@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 import torch
+import wandb
 from sklearn.linear_model import LogisticRegression
 from sklearn.manifold import TSNE
 from sklearn.metrics import classification_report, silhouette_score
@@ -14,7 +15,6 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from umap import UMAP
 
-import wandb
 from src.config import (
     TimeContrastiveTrainingConfig,
     TimeDomainAdversarialTrainingConfig,

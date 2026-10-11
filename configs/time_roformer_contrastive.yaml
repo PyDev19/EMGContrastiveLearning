@@ -1,7 +1,7 @@
 task: time_contrastive
 batch_size: 4096
 accumulation_steps: 1
-num_epochs: 100
+num_epochs: 1000
 normalizer: zscore
 max_embedding_samples: 5000
 embeddings_log_freq: 10
@@ -22,7 +22,7 @@ model:
         channels: 64
         patch_size: 64
         embed_dim: 256
-        hidden_dim: 512
+        hidden_dim: 1024
         projection_dim: 128
         projection_hidden_dims: [256]
         num_heads: 4

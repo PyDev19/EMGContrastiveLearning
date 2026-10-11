@@ -1,0 +1,27 @@
+program: src.train
+method: bayes
+metric:
+    name: linear_probe/logreg/macro_f1
+    goal: maximize
+
+command:
+    - python
+    - -m
+    - ${program}
+    - --data-dir=/scratch/juno/axm240143/blueprint_data/both_ungrouped_include_fma_zero
+    - --config=./configs/time_roformer_contrastive.yaml
+    - ${args}
+
+parameters:
+    optimizer.learning_rate:
+        distribution: log_uniform_values
+        min: 1.0e-5
+        max: 1.0e-3
+    optimizer.weight_decay:
+        distribution: log_uniform_values
+        min: 1.0e-4
+        max: 1.0e-1
+    loss.temperature:
+        values: [0.05, 0.07, 0.1, 0.2]
+    accumulation_steps:
+        values: [1, 2, 4, 8]

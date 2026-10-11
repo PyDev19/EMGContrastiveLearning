@@ -126,7 +126,9 @@ _TASK_SCHEMA_MAP: dict[str, type] = {
 }
 
 
-def load_training_config(config_path: str) -> TrainingConfig:
+def load_training_config(
+    config_path: str, overrides: dict | None = None
+) -> TrainingConfig:
     """Load and validate a training config from YAML, dispatching to the schema
     matching the top-level `task` field. Because each task variant's `model`
     field is restricted to a Literal of only that task's valid model name(s),
@@ -151,7 +153,13 @@ def load_training_config(config_path: str) -> TrainingConfig:
         )
 
     schema = _TASK_SCHEMA_MAP[task]
-    merged = OmegaConf.merge(OmegaConf.structured(schema), raw)
+    sources = [OmegaConf.structured(schema), raw]
+    if overrides:
+        sources.append(
+            OmegaConf.from_dotlist([f"{k}={v}" for k, v in overrides.items()])
+        )
+
+    merged = OmegaConf.merge(*sources)
     return cast(TrainingConfig, OmegaConf.to_object(merged))
 
 
