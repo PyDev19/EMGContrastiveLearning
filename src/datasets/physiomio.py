@@ -1,15 +1,45 @@
 import pathlib
+import random
+from collections import defaultdict
 
 import h5py
 import numpy as np
 import torch
+from torch.utils.data import Sampler
 from torch.utils.data.dataset import Dataset
 
 from src.utils.augmentations import Augmentations
 from src.utils.normalization import Normalizer
 from src.utils.registers import DATASETS, NORMALIZERS, register
 from src.utils.signal_processing import calculate_window_indices, rms_transform
-from src.utils.types import WindowOpts
+from src.utils.types import WindowIndex, WindowOpts
+
+
+class PhysioMioTrialBatchSampler(Sampler[list[int]]):
+    def __init__(self, window_indices: list[WindowIndex], seed: int = 42):
+        self.rng = random.Random(seed)
+
+        trial_to_windows = defaultdict(list)
+        for i, window_info in enumerate(window_indices):
+            trial_to_windows[int(window_info["trial_idx"])].append(i)
+
+        self.trials = sorted(trial_to_windows)
+        self.trial_windows = [trial_to_windows[t] for t in self.trials]
+
+        self.windows_per_trial = min(len(windows) for windows in self.trial_windows)
+
+    def __len__(self):
+        return self.windows_per_trial
+
+    def __iter__(self):
+        orders = []
+        for windows in self.trial_windows:
+            perm = windows[:]
+            self.rng.shuffle(perm)
+            orders.append(perm)
+
+        for i in range(self.windows_per_trial):
+            yield [order[i] for order in orders]
 
 
 @register(DATASETS, "physiomio")
