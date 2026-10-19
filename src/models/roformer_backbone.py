@@ -1,10 +1,10 @@
 import math
 
 import torch
-from torch.nn import LayerNorm, Linear, Module, ModuleList, Parameter
+from torch.nn import LayerNorm, Linear, Module, ModuleList
 from torch.utils.checkpoint import checkpoint
 
-from src.layers import DropPath, PatchEmbeddings, RotarySelfAttentionBlock, SwiGLU
+from src.layers import DropPath, RotarySelfAttentionBlock, SwiGLU
 
 
 class RotaryTransformerBlock(Module):
