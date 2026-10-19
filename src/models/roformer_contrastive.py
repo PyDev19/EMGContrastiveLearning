@@ -2,11 +2,13 @@ import torch
 from torch.nn import (
     Linear,
     Module,
+    Parameter,
 )
 
 from src.layers import (
     MLP,
     GradientReverseLayer,
+    PatchEmbeddings,
 )
 from src.models.roformer_backbone import RoFormerBackbone
 from src.utils.registers import MODELS, register
@@ -60,10 +62,15 @@ class RoFormerTimeContrastiveModel(Module):
         """
         super().__init__()
 
-        self.roformer_backbone = RoFormerBackbone(
-            time_steps=time_steps,
-            channels=channels,
+        self.num_patches = (time_steps // patch_size) * channels
+        self.channel_embed = Parameter(torch.zeros(1, channels, 1, embed_dim))
+
+        self.patch_embedding = PatchEmbeddings(
             patch_size=patch_size,
+            embed_dim=embed_dim,
+        )
+
+        self.roformer_backbone = RoFormerBackbone(
             embed_dim=embed_dim,
             hidden_dim=hidden_dim,
             num_heads=num_heads,
@@ -83,6 +90,8 @@ class RoFormerTimeContrastiveModel(Module):
         )
 
         self.projection_head.apply(self._init_weights)
+
+        torch.nn.init.trunc_normal_(self.channel_embed, std=0.02)
 
     def _init_weights(self, module: Module) -> None:
         """Initialize the weights of the model.
@@ -107,8 +116,11 @@ class RoFormerTimeContrastiveModel(Module):
         Returns:
             tuple[torch.Tensor, torch.Tensor | None]: A tuple containing the pooled features and the projected features.
         """
-        pooled = self.roformer_backbone(x)
+        x = self.patch_embedding(x)
+        _, C, _, _ = x.shape
+        x = x + self.channel_embed[:, :C, :, :]
 
+        pooled = self.roformer_backbone(x)
         projection = self.projection_head(pooled) if return_projected else None
 
         return pooled, projection
@@ -160,10 +172,14 @@ class RoFormerTimeDomainAdversialContrastiveModel(Module):
         """
         super().__init__()
 
-        self.roformer_backbone = RoFormerBackbone(
-            time_steps=time_steps,
-            channels=channels,
+        self.num_patches = (time_steps // patch_size) * channels
+        self.channel_embed = Parameter(torch.zeros(1, channels, 1, embed_dim))
+
+        self.patch_embedding = PatchEmbeddings(
             patch_size=patch_size,
+            embed_dim=embed_dim,
+        )
+        self.roformer_backbone = RoFormerBackbone(
             embed_dim=embed_dim,
             hidden_dim=hidden_dim,
             num_heads=num_heads,
@@ -194,6 +210,8 @@ class RoFormerTimeDomainAdversialContrastiveModel(Module):
         self.projection_head.apply(self._init_weights)
         self.domain_adversial_head.apply(self._init_weights)
 
+        torch.nn.init.trunc_normal_(self.channel_embed, std=0.02)
+
     def _init_weights(self, module: Module) -> None:
         """Initialize the weights of the model.
 
@@ -217,6 +235,10 @@ class RoFormerTimeDomainAdversialContrastiveModel(Module):
         Returns:
             tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]: A tuple containing the pooled features, the projected features, and the domain adversial features.
         """
+        x = self.patch_embedding(x)
+        _, C, _, _ = x.shape
+        x = x + self.channel_embed[:, :C, :, :]
+
         pooled = self.roformer_backbone(x)
 
         projection = None
