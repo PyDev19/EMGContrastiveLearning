@@ -12,7 +12,7 @@ from src.datasets import *
 from src.loss import *
 from src.models import *
 from src.utils.augmentations import Augmentations
-from src.utils.registers import DATASETS, LOSSES, MODELS, NORMALIZERS
+from src.utils.registers import DATASETS, LOSSES, MODELS, NORMALIZERS, SAMPLERS
 from src.utils.types import (
     ActivationName,
     DatasetName,
@@ -85,7 +85,7 @@ class TimeDomainAdversarialModelConfig:
 @dataclass
 class TimeContrastiveTrainingConfig:
     task: Literal["time_contrastive"]
-    batch_size: int
+    batch_size: int | Literal["sampler"]
     num_epochs: int
     accumulation_steps: int
     max_embedding_samples: int
@@ -103,7 +103,7 @@ class TimeContrastiveTrainingConfig:
 @dataclass
 class TimeDomainAdversarialTrainingConfig:
     task: Literal["time_domain_adversial_contrastive"]
-    batch_size: int
+    batch_size: int | Literal["sampler"]
     num_epochs: int
     accumulation_steps: int
     max_embedding_samples: int
@@ -198,21 +198,45 @@ def build_dataloaders(config: TrainingConfig, data_dir: pathlib.Path):
     print(f"Train samples: {len(train_dataset)}")
     print(f"Test samples: {len(test_dataset)}")
 
-    train_dataloader = DataLoader(
-        train_dataset,
-        batch_size=config.batch_size,
-        shuffle=True,
-        num_workers=4,
-        pin_memory=True,
-    )
+    if config.batch_size == "sampler":
+        train_sampler = SAMPLERS[config.dataset.name](
+            window_indices=train_dataset.window_indices
+        )
+        test_sampler = SAMPLERS[config.dataset.name](
+            window_indices=test_dataset.window_indices
+        )
 
-    test_dataloader = DataLoader(
-        test_dataset,
-        batch_size=config.batch_size,
-        shuffle=False,
-        num_workers=4,
-        pin_memory=True,
-    )
+        train_dataloader = DataLoader(
+            train_dataset,
+            batch_sampler=train_sampler,
+            shuffle=True,
+            num_workers=4,
+            pin_memory=True,
+        )
+
+        test_dataloader = DataLoader(
+            test_dataset,
+            batch_sampler=test_sampler,
+            shuffle=False,
+            num_workers=4,
+            pin_memory=True,
+        )
+    else:
+        train_dataloader = DataLoader(
+            train_dataset,
+            batch_size=config.batch_size,
+            shuffle=True,
+            num_workers=4,
+            pin_memory=True,
+        )
+
+        test_dataloader = DataLoader(
+            test_dataset,
+            batch_size=config.batch_size,
+            shuffle=False,
+            num_workers=4,
+            pin_memory=True,
+        )
 
     return train_dataloader, test_dataloader
 

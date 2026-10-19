@@ -9,6 +9,7 @@ NORMALIZERS = {"zscore": ZScoreNormalizer, "minmax": MinMaxNormalizer}
 ACTIVATIONS = {"relu": ReLU, "gelu": GELU, "silu": SiLU}
 MODELS = {}
 DATASETS = {}
+SAMPLERS = {}
 LOSSES = {}
 
 

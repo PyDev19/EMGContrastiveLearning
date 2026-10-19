@@ -10,11 +10,12 @@ from torch.utils.data.dataset import Dataset
 
 from src.utils.augmentations import Augmentations
 from src.utils.normalization import Normalizer
-from src.utils.registers import DATASETS, NORMALIZERS, register
+from src.utils.registers import DATASETS, NORMALIZERS, SAMPLERS, register
 from src.utils.signal_processing import calculate_window_indices, rms_transform
 from src.utils.types import WindowIndex, WindowOpts
 
 
+@register(SAMPLERS, "physiomio")
 class PhysioMioTrialBatchSampler(Sampler[list[int]]):
     def __init__(self, window_indices: list[WindowIndex], seed: int = 42):
         self.rng = random.Random(seed)
