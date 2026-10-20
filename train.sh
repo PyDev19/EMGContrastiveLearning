@@ -13,12 +13,12 @@ module load miniconda
 
 conda init bash
 source activate base
-conda activate /groups/emeyers/.conda/envs/meyerlab
+conda activate /groups/emeyers/.conda/envs/research/
 
 SRC=/groups/emeyers/EMGContrastiveLearning/
 
-cd $SRC
+cd $SRC || exit
 
 export LD_LIBRARY_PATH=/opt/ohpc/pub/compiler/gcc/14.2.0/lib64:$LD_LIBRARY_PATH
 
-python -m src.train --data-dir $1 --config $2
+python -m src.train --data-dir "$1" --config "$2"
