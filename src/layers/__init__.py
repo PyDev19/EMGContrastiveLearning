@@ -1,3 +1,4 @@
+from src.layers.attention_pool import AttentionPool
 from src.layers.drop_path import DropPath
 from src.layers.gradient_reversal import GradientReverseLayer
 from src.layers.mlp import MLP
@@ -7,6 +8,7 @@ from src.layers.swiglu import SwiGLU
 
 __all__ = [
     "MLP",
+    "AttentionPool",
     "DropPath",
     "GradientReverseLayer",
     "PatchEmbeddings",
