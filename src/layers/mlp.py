@@ -33,7 +33,7 @@ class MLP(Module):
             if activation is not None:
                 self.layers.append(ACTIVATIONS[activation]())
 
-            if dropout is not None:
+            if dropout:
                 self.layers.append(Dropout(dropout))
 
             prev_dim = hidden_dim
