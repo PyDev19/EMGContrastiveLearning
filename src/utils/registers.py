@@ -1,12 +1,13 @@
 from collections.abc import Callable
 
-from torch.nn import GELU, ReLU, SiLU
+from torch.nn import GELU, LayerNorm, ReLU, RMSNorm, SiLU
 
 from src.utils.normalization import MinMaxNormalizer, ZScoreNormalizer
 from src.utils.types import DatasetName, LossName, ModelName, T
 
 NORMALIZERS = {"zscore": ZScoreNormalizer, "minmax": MinMaxNormalizer}
 ACTIVATIONS = {"relu": ReLU, "gelu": GELU, "silu": SiLU}
+NORM_LAYERS = {"layer": LayerNorm, "rms": RMSNorm}
 MODELS = {}
 DATASETS = {}
 SAMPLERS = {}

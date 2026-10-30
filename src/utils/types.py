@@ -4,6 +4,8 @@ T = TypeVar("T")
 
 ActivationName = Literal["relu", "gelu", "silu"]
 NormalizerName = Literal["zscore", "minmax"]
+NormLayerName = Literal["layer", "rms"]
+PoolName = Literal["mean", "attention"]
 ModelName = Literal[
     "roformer_time_contrastive", "roformer_time_domain_adversial_contrastive"
 ]

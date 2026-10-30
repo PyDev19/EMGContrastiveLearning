@@ -1,10 +1,12 @@
 import math
 
 import torch
-from torch.nn import LayerNorm, Linear, Module, ModuleList
+from torch.nn import LayerNorm, Linear, Module, ModuleList, RMSNorm
 from torch.utils.checkpoint import checkpoint
 
 from src.layers import DropPath, RotarySelfAttentionBlock, SwiGLU
+from src.utils.registers import NORM_LAYERS
+from src.utils.types import NormLayerName
 
 
 class RotaryTransformerBlock(Module):
@@ -16,6 +18,7 @@ class RotaryTransformerBlock(Module):
         proj_drop_prob: float,
         attn_drop_prob: float,
         drop_path_prob: float,
+        norm: NormLayerName = "layer",
         qkv_bias: bool = False,
     ):
         """Individual transformer block using RoPE self-attention and an MLP with residual connections.
@@ -32,7 +35,7 @@ class RotaryTransformerBlock(Module):
             qkv_bias (bool, optional): whether to include a bias term in the QKV projection. Defaults to False.
         """
         super().__init__()
-        self.norm1 = LayerNorm(dim)
+        self.norm1 = NORM_LAYERS[norm](dim)
         self.attn = RotarySelfAttentionBlock(
             dim=dim,
             num_heads=num_heads,
@@ -44,7 +47,7 @@ class RotaryTransformerBlock(Module):
         self.drop_path1 = DropPath(drop_path_prob)
         self.drop_path2 = DropPath(drop_path_prob)
 
-        self.norm2 = LayerNorm(dim)
+        self.norm2 = NORM_LAYERS[norm](dim)
 
         self.swiglu = SwiGLU(
             input_dim=dim,
@@ -85,6 +88,7 @@ class RoFormerBackbone(Module):
         proj_drop_prob: float,
         attn_drop_prob: float,
         drop_path_prob: float,
+        norm: NormLayerName = "layer",
         qkv_bias: bool = False,
     ):
         """ViT-style transformer using RoPE self-attention for contrastive pretraining
@@ -115,12 +119,13 @@ class RoFormerBackbone(Module):
                     proj_drop_prob=proj_drop_prob,
                     attn_drop_prob=attn_drop_prob,
                     drop_path_prob=drop_path_prob,
+                    norm=norm,
                 )
                 for _ in range(num_layers)
             ]
         )
 
-        self.norm_layer = LayerNorm(embed_dim)
+        self.norm_layer = NORM_LAYERS[norm](embed_dim)
 
         self.apply(self._init_weights)
         self.fix_init_weight()
@@ -143,9 +148,11 @@ class RoFormerBackbone(Module):
             torch.nn.init.xavier_uniform_(module.weight)
             if module.bias is not None:
                 torch.nn.init.constant_(module.bias, 0)
-        elif isinstance(module, LayerNorm):
-            torch.nn.init.constant_(module.bias, 0)
-            torch.nn.init.constant_(module.weight, 1.0)
+        elif isinstance(module, (LayerNorm, RMSNorm)):
+            if getattr(module, "bias", None) is not None:
+                torch.nn.init.constant_(module.bias, 0)  # pyright: ignore[reportArgumentType]
+            if module.weight is not None:
+                torch.nn.init.constant_(module.weight, 1.0)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass for the RoFormerConstrastiveModel.
@@ -172,7 +179,7 @@ class RoFormerBackbone(Module):
 
         x = self.norm_layer(x)
 
-        return x.mean(dim=1)
+        return x
 
 
 if __name__ == "__main__":
