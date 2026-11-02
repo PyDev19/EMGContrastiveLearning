@@ -11,7 +11,7 @@ module load miniconda
 
 conda init bash
 source activate base
-conda activate /groups/emeyers/.conda/envs/meyerlab
+conda activate /groups/emeyers/.conda/envs/research
 
 SRC=/groups/emeyers/EMGContrastiveLearning
 
