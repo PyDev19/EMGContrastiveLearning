@@ -19,4 +19,4 @@ cd ~/scratch/
 
 hf download formove-ai/physiomio --repo-type dataset --local-dir ./blueprint_data/
 
-python $SRC/src/preprocessing/physiomio.py --data_dir ./blueprint_data/data/ --output_dir ./blueprint_data/ --include_fma_zero --arm_type healthy_arm
+python $SRC/scripts/preprocess_physiomio.py --data_dir ./blueprint_data/data/ --output_dir ./blueprint_data/ --include_fma_zero --arm_type both

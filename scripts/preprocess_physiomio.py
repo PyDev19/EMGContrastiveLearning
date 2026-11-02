@@ -93,19 +93,19 @@ def load_patient_data(
         if subset.empty:
             continue
 
+        emg = subset[CHANNEL_COLS].to_numpy(dtype="float32").T
+        if emg.shape[1] == 8193:
+            emg = emg[:, :TARGET_LENGTH]
+        elif emg.shape[1] < TARGET_LENGTH:
+            continue  # Skip this trial if it's too short
+
         gestures.append(subset["gesture"].iloc[0])
         fma_scores.append(subset["fma"].iloc[0])
-        emg = subset[CHANNEL_COLS].to_numpy(dtype="float32").T
 
         emg = bandpass_filter(
             emg, order=4, low_cutoff=LOW_CUTOFF, high_cutoff=HIGH_CUTOFF, fs=FS
         )
         emg = notch_filter(emg, quality_factor=30, notch_freq=NOTCH_FREQ, fs=FS)
-
-        if emg.shape[1] == 8193:
-            emg = emg[:, :TARGET_LENGTH]
-        elif emg.shape[1] < TARGET_LENGTH:
-            continue  # Skip this trial if it's too short
 
         emgs.append(emg)
 
