@@ -1,28 +1,35 @@
-from dataclasses import dataclass, field
-
 import numpy as np
 import torch
 
 
-@dataclass(eq=False)
 class Augmentations:
-    """Initialize the Augmentations class with specified parameters for each augmentation technique.
+    def __init__(
+        self,
+        jitter_sigma: float = 0.8,
+        scale_sigma: float = 1.1,
+        mask_size: list | None = None,
+        mask_prob: float = 0.5,
+        channel_dropout_prob: float = 0.1,
+    ):
+        """Initialize the Augmentations class with specified parameters for each augmentation technique.
 
-    Args:
-        jitter_sigma (float, optional): Standard deviation for jitter augmentation. Defaults to 0.8.
-        scale_sigma (float, optional): Standard deviation for scale augmentation. Defaults to 1.1.
-        mask_size (list[int], optional): Size [C, T] of masked patches where C <= sEMG channels and T <= sEMG timesteps. Defaults to [4, 32].
-        mask_prob (float, optional): Probability of masking segments. Defaults to 0.5.
-        possible_num_segments (list, optional): List of possible number of segments for permutation augmentation. Defaults to [2, 4, 5].
-        freq_perturb_ratio (float, optional): Ratio of frequencies to perturb. Defaults to 0.25.
-        freq_alpha (float, optional): Alpha parameter for frequency perturbation. Defaults to 0.1.
-    """
+        Args:
+            jitter_sigma (float, optional): Standard deviation for jitter augmentation. Defaults to 0.8.
+            scale_sigma (float, optional): Standard deviation for scale augmentation. Defaults to 1.1.
+            mask_size (list[int], optional): Size [C, T] of masked patches where C <= sEMG channels and T <= sEMG timesteps. Defaults to [4, 32].
+            mask_prob (float, optional): Probability of masking segments. Defaults to 0.5.
+            possible_num_segments (list, optional): List of possible number of segments for permutation augmentation. Defaults to [2, 4, 5].
+            freq_perturb_ratio (float, optional): Ratio of frequencies to perturb. Defaults to 0.25.
+            freq_alpha (float, optional): Alpha parameter for frequency perturbation. Defaults to 0.1.
+        """
+        if mask_size is None:
+            mask_size = [4, 32]
 
-    jitter_sigma: float = 0.8
-    scale_sigma: float = 1.1
-    mask_size: list = field(default_factory=lambda: [4, 32])
-    mask_prob: float = 0.5
-    channel_dropout_prob: float = 0.1
+        self.jitter_sigma = jitter_sigma
+        self.scale_sigma = scale_sigma
+        self.mask_size = mask_size
+        self.mask_prob = mask_prob
+        self.channel_dropout_prob = channel_dropout_prob
 
     def jitter(self, emg_window: torch.Tensor) -> torch.Tensor:
         """Add random Gaussian noise to the input EMG window.
@@ -114,7 +121,9 @@ class Augmentations:
         Returns:
             torch.Tensor: The augmented EMG window, with the same shape as the input.
         """
-        augmentations = np.array([self.jitter, self.scale, self.patch_mask, self.channel_dropout])
+        augmentations = np.array(
+            [self.jitter, self.scale, self.patch_mask, self.channel_dropout]
+        )
         np.random.shuffle(augmentations)
 
         applied = False

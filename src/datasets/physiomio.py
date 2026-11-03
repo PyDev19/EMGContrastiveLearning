@@ -10,9 +10,9 @@ from torch.utils.data.dataset import Dataset
 
 from src.utils.augmentations import Augmentations
 from src.utils.normalization import Normalizer
-from src.utils.registers import DATASETS, NORMALIZERS, SAMPLERS, register
+from src.utils.registers import DATASETS, SAMPLERS, register
 from src.utils.signal_processing import calculate_window_indices, rms_transform
-from src.utils.types import WindowIndex, WindowOpts
+from src.utils.types import NormalizerScopeName, WindowIndex, WindowOpts
 
 
 @register(SAMPLERS, "physiomio")
@@ -52,6 +52,7 @@ class PhysioMioDataset(Dataset):
         window_opts: WindowOpts | None = None,
         rms_opts: WindowOpts | None = None,
         normalizer: Normalizer | None = None,
+        normalizer_scope: NormalizerScopeName = "global",
         augmentations: Augmentations | None = None,
     ):
         self.augmentations = augmentations
@@ -67,14 +68,19 @@ class PhysioMioDataset(Dataset):
         print("Loading patient data...")
         for patient_id in patient_ids:
             with h5py.File(data_dir / f"patient_{patient_id}.h5", "r") as f:
-                emgs.append(f["emgs"][:])  # pyright: ignore[reportIndexIssue]
+                emg = torch.from_numpy(f["emgs"][:])  # pyright: ignore[reportIndexIssue]
+                if normalizer and normalizer_scope == "per-patient":
+                    print(
+                        f"Normalizing patient {patient_id} sEMG signals with {normalizer.__class__.__name__}..."
+                    )
+                    emg = normalizer.fit_transform(emg)
+
+                emgs.append(emg)
                 gestures.append(f["gestures"][:])  # pyright: ignore[reportIndexIssue]
                 subjects.append(np.full((f["gestures"].shape[0],), patient_id))  # type: ignore
 
         print("Concatenating dataset and converting to tensor...")
-        self.raw_emgs = torch.from_numpy(
-            np.concatenate(emgs, axis=0)
-        )  # (trials, channels, time steps)
+        self.raw_emgs = torch.concatenate(emgs, dim=0)  # (trials, channels, time steps)
         self.gestures = torch.from_numpy(
             np.concatenate(gestures, axis=0)
         ).long()  # (trials, 1)
@@ -87,8 +93,10 @@ class PhysioMioDataset(Dataset):
             for i, p in enumerate(torch.unique(self.subjects, sorted=True).tolist())
         }
 
-        print(f"Normalizing sEMG signals with {normalizer.__class__.__name__}...")
-        if normalizer:
+        if normalizer and normalizer_scope == "global":
+            print(
+                f"Normalizing global sEMG signals with {normalizer.__class__.__name__}..."
+            )
             if normalizer._fitted:
                 self.raw_emgs = normalizer.transform_(self.raw_emgs)
             else:

@@ -5,7 +5,12 @@ from typing import Literal, cast
 import numpy as np
 from omegaconf import OmegaConf
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import (
+    ConstantLR,
+    CosineAnnealingLR,
+    LinearLR,
+    SequentialLR,
+)
 from torch.utils.data import DataLoader
 
 from src.datasets import *
@@ -14,17 +19,29 @@ from src.models import *
 from src.utils.augmentations import Augmentations
 from src.utils.registers import DATASETS, LOSSES, MODELS, NORMALIZERS, SAMPLERS
 from src.utils.types import (
-    ActivationName,
     DatasetName,
+    LossName,
+    ModelName,
     NormalizerName,
+    NormalizerScopeName,
+    TaskName,
     WindowOpts,
 )
 
 
 @dataclass
+class AugmentationConfig:
+    jitter_sigma: float
+    scale_sigma: float
+    mask_size: list[int]
+    mask_prob: float
+    channel_dropout_prob: float
+
+
+@dataclass
 class DatasetArgs:
     window_opts: WindowOpts
-    rms_opts: WindowOpts | None = None
+    rms_opts: WindowOpts | None
 
 
 @dataclass
@@ -34,33 +51,15 @@ class DatasetConfig:
 
 
 @dataclass
-class RoFormerContrastiveModelArgs:
-    time_steps: int
-    channels: int
-    patch_size: int
-    embed_dim: int
-    hidden_dim: int
-    projection_dim: int
-    projection_hidden_dims: list[int]
-    num_heads: int
-    num_layers: int
-    proj_drop_prob: float
-    attn_drop_prob: float
-    drop_path_prob: float
-    mlp_drop_prob: float
-    qkv_bias: bool
-    projection_activation: ActivationName
+class ModelConfig:
+    name: ModelName
+    args: dict[str, any]
 
 
 @dataclass
-class SupervisedContrastiveLossArgs:
-    temperature: float
-
-
-@dataclass
-class OptimizerArgs:
-    learning_rate: float
-    weight_decay: float
+class LossConfig:
+    name: LossName
+    args: dict[str, any]
 
 
 @dataclass
@@ -71,219 +70,189 @@ class WandbConfig:
 
 
 @dataclass
-class TimeContrastiveModelConfig:
-    name: Literal["roformer_time_contrastive"]
-    args: RoFormerContrastiveModelArgs
+class TrainConfig:
+    task: TaskName
 
-
-@dataclass
-class TimeDomainAdversarialModelConfig:
-    name: Literal["roformer_time_domain_adversial_contrastive"]
-    args: RoFormerContrastiveModelArgs
-
-
-@dataclass
-class TimeContrastiveTrainingConfig:
-    task: Literal["time_contrastive"]
     batch_size: int | Literal["sampler"]
-    num_epochs: int
     accumulation_steps: int
+    num_epochs: int
+
+    warmup: Literal["warmup", "rampup"]
+    learning_rate: float
+    weight_decay: float
+
+    normalizer: NormalizerName
+    normalizer_scope: NormalizerScopeName
+
     max_embedding_samples: int
     embeddings_log_freq: int
     linear_probe_freq: int
 
-    normalizer: NormalizerName
+    augmentations: AugmentationConfig
     dataset: DatasetConfig
-    model: TimeContrastiveModelConfig
-    loss: SupervisedContrastiveLossArgs
-    optimizer: OptimizerArgs
+    model: ModelConfig
+    loss: LossConfig
     wandb: WandbConfig
 
 
-@dataclass
-class TimeDomainAdversarialTrainingConfig:
-    task: Literal["time_domain_adversial_contrastive"]
-    batch_size: int | Literal["sampler"]
-    num_epochs: int
-    accumulation_steps: int
-    max_embedding_samples: int
-    embeddings_log_freq: int
-    linear_probe_freq: int
-
-    normalizer: NormalizerName
-    dataset: DatasetConfig
-    model: TimeDomainAdversarialModelConfig
-    loss: SupervisedContrastiveLossArgs
-    optimizer: OptimizerArgs
-    wandb: WandbConfig
-
-
-TrainingConfig = TimeContrastiveTrainingConfig | TimeDomainAdversarialTrainingConfig
-
-_TASK_SCHEMA_MAP: dict[str, type] = {
-    "time_contrastive": TimeContrastiveTrainingConfig,
-    "time_domain_adversial_contrastive": TimeDomainAdversarialTrainingConfig,
+TASK_TO_MODEL: dict[TaskName, ModelName] = {
+    "time_contrastive": "roformer_time_contrastive",
+    "time_dann_contrastive": "roformer_time_dann_contrastive",
 }
 
+TASK_TO_LOSS: dict[TaskName, LossName] = {
+    "time_contrastive": "supervised_contrastive",
+    "time_dann_contrastive": "supervised_contrastive",
+}
 
-def load_training_config(
-    config_path: str, overrides: dict | None = None
-) -> TrainingConfig:
-    """Load and validate a training config from YAML, dispatching to the schema
-    matching the top-level `task` field. Because each task variant's `model`
-    field is restricted to a Literal of only that task's valid model name(s),
-    a mismatched task/model pairing fails OmegaConf's structured-config
-    validation directly — no separate runtime cross-check needed.
+DATASET_TO_PATINETS: dict[DatasetName, list[int]] = {"physiomio": list(range(1, 49))}
+
+
+def load_train_config(
+    config_path: str, overrides: list[str] | None = None
+) -> TrainConfig:
+    """Load a training config from YAML and validate it against `TrainConfig`.
 
     Args:
-        config_path (str): Path to the YAML configuration file.
+        config_path (str): path to the YAML file.
+        overrides (list[str] | None): dotlist overrides, e.g.
+            ["learning_rate=3e-4", "model.args.num_layers=6"].
 
     Returns:
-        TrainingConfig: the validated, fully-typed training config.
+        TrainConfig: the fully-typed config. `model.args` and `loss.args` are plain dicts.
 
     Raises:
-        ValueError: if `task` is missing or not a recognized task name.
+        omegaconf.errors.MissingMandatoryValue: a required field is absent from the YAML.
+        omegaconf.errors.ValidationError: a field has the wrong type.
     """
-    raw = OmegaConf.load(config_path)
-
-    task = OmegaConf.select(raw, "task")
-    if task not in _TASK_SCHEMA_MAP:
-        raise ValueError(
-            f"Unknown or missing 'task': {task!r}. Expected one of {list(_TASK_SCHEMA_MAP)}."
-        )
-
-    schema = _TASK_SCHEMA_MAP[task]
-    sources = [OmegaConf.structured(schema), raw]
+    sources = [OmegaConf.structured(TrainConfig), OmegaConf.load(config_path)]
     if overrides:
-        sources.append(
-            OmegaConf.from_dotlist([f"{k}={v}" for k, v in overrides.items()])
-        )
+        sources.append(OmegaConf.from_dotlist(overrides))
 
     merged = OmegaConf.merge(*sources)
-    return cast(TrainingConfig, OmegaConf.to_object(merged))
+    config = cast(TrainConfig, OmegaConf.to_object(merged))
 
-
-def build_dataloaders(config: TrainingConfig, data_dir: pathlib.Path):
-    normalizer = NORMALIZERS[config.normalizer]()
-    augmentations = Augmentations()
-
-    if config.dataset.name == "physiomio":
-        patients = list(range(1, 49))
-        test_patient = np.random.choice(patients, size=5, replace=False).tolist()
-        train_patients = [p for p in patients if p not in test_patient]
-    else:
-        raise NotImplementedError(
-            f"Patient splitting for '{config.dataset.name}' not yet implemented"
+    if not (
+        config.model.name == TASK_TO_MODEL[config.task]
+        and config.loss.name == TASK_TO_LOSS[config.task]
+    ):
+        raise ValueError(
+            f"task '{config.task}' expects '{config.model.name}' model and '{config.loss.name}' loss"
         )
 
-    print(f"Train patients: {train_patients}")
-    print(f"Test patients: {test_patient}")
+    return config
 
-    train_dataset = DATASETS[config.dataset.name](
-        data_dir=data_dir,
-        patient_ids=train_patients,
-        normalizer=normalizer,
-        augmentations=augmentations,
-        **asdict(config.dataset.args),
-    )
 
-    test_dataset = DATASETS[config.dataset.name](
-        data_dir=data_dir,
-        patient_ids=test_patient,
-        normalizer=normalizer,
-        augmentations=augmentations,
-        **asdict(config.dataset.args),
-    )
+def build_dataloaders(
+    config: TrainConfig, data_dir: pathlib.Path
+) -> tuple[DataLoader, DataLoader, list[int]]:
+    patients = DATASET_TO_PATINETS.get(config.dataset.name, [])
+    if not patients:
+        raise NotImplementedError(f"{config.dataset.name} not implemented")
 
-    print(f"Train samples: {len(train_dataset)}")
-    print(f"Test samples: {len(test_dataset)}")
+    test_patients = np.random.choice(patients, size=5, replace=False).tolist()
+    train_patients = [p for p in patients if p not in test_patients]
+
+    augmentations = Augmentations(**asdict(config.augmentations))
+
+    if config.normalizer_scope == "global":
+        train_dataset = DATASETS[config.dataset.name](
+            data_dir=data_dir,
+            patient_ids=train_patients,
+            normalizer=NORMALIZERS[config.normalizer],
+            augmentations=augmentations,
+            **asdict(config.dataset.args),
+        )
+
+        test_dataset = DATASETS[config.dataset.name](
+            data_dir=data_dir,
+            patient_ids=test_patients,
+            normalizer=train_dataset.normalizer,
+            augmentations=augmentations,
+            **asdict(config.dataset.args),
+        )
+    else:
+        train_dataset = DATASETS[config.dataset.name](
+            data_dir=data_dir,
+            patient_ids=train_patients,
+            normalizer=NORMALIZERS[config.normalizer],
+            augmentations=augmentations,
+            **asdict(config.dataset.args),
+        )
+
+        test_dataset = DATASETS[config.dataset.name](
+            data_dir=data_dir,
+            patient_ids=test_patients,
+            normalizer=NORMALIZERS[config.normalizer],
+            augmentations=augmentations,
+            **asdict(config.dataset.args),
+        )
 
     if config.batch_size == "sampler":
         train_sampler = SAMPLERS[config.dataset.name](
             window_indices=train_dataset.window_indices
         )
+
         test_sampler = SAMPLERS[config.dataset.name](
             window_indices=test_dataset.window_indices
         )
 
         train_dataloader = DataLoader(
-            train_dataset,
-            batch_sampler=train_sampler,
-            shuffle=True,
-            num_workers=4,
-            pin_memory=True,
+            train_dataset, batch_sampler=train_sampler, pin_memory=True, num_workers=4
         )
-
         test_dataloader = DataLoader(
-            test_dataset,
-            batch_sampler=test_sampler,
-            shuffle=False,
-            num_workers=4,
-            pin_memory=True,
+            test_dataset, batch_sampler=test_sampler, pin_memory=True, num_workers=4
         )
     else:
         train_dataloader = DataLoader(
             train_dataset,
             batch_size=config.batch_size,
             shuffle=True,
-            num_workers=4,
             pin_memory=True,
+            num_workers=4,
         )
-
         test_dataloader = DataLoader(
             test_dataset,
             batch_size=config.batch_size,
-            shuffle=False,
-            num_workers=4,
+            shuffle=True,
             pin_memory=True,
+            num_workers=4,
         )
 
-    return train_dataloader, test_dataloader
+    return train_dataloader, test_dataloader, train_patients
 
 
-def build_model_optimizer_scheduler(config: TrainingConfig):
-    match config:
-        case TimeContrastiveTrainingConfig():
-            model = MODELS[config.model.name](**asdict(config.model.args))
-        case TimeDomainAdversarialTrainingConfig():
-            model = MODELS[config.model.name](**asdict(config.model.args))
-        case _:
-            raise ValueError(f"Unhandled training config variant: {type(config)}")
+def build_model_loss_optimizer_scheduler(
+    config: TrainConfig, steps_per_epoch: int, train_patients: list[int] | None = None
+):
+    if "dann" in config.model.name:
+        model = MODELS[config.model.name](
+            num_subjects=train_patients, **config.model.args
+        )
+    else:
+        model = MODELS[config.model.name](**config.model.args)
+
+    loss_fn = LOSSES[config.loss.name](**config.loss.args)
 
     optimizer = AdamW(
-        model.parameters(),
-        lr=config.optimizer.learning_rate,
-        weight_decay=config.optimizer.weight_decay,
+        model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay
     )
-    scheduler = CosineAnnealingLR(optimizer, T_max=config.num_epochs)
 
-    return model, optimizer, scheduler
+    total_steps = config.num_epochs * steps_per_epoch
+    warmup_steps = int(0.01 * total_steps)
 
+    if config.warmup == "rampup":
+        warmup_lr = LinearLR(
+            optimizer, start_factor=0.01, end_factor=1, total_iters=warmup_steps
+        )
+    else:
+        warmup_lr = ConstantLR(optimizer, factor=1, total_iters=warmup_steps)
 
-def build_loss(config: TrainingConfig):
-    match config:
-        case TimeContrastiveTrainingConfig():
-            return LOSSES["supervised_contrastive"](**asdict(config.loss))
-        case TimeDomainAdversarialTrainingConfig():
-            return LOSSES["supervised_contrastive"](**asdict(config.loss))
-        case _:
-            raise ValueError(f"Unhandled training config variant: {type(config)}")
-
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Validate training config YAML.")
-    parser.add_argument(
-        "--config",
-        type=str,
-        help="Path to the YAML configuration file.",
+    cosine_lr = CosineAnnealingLR(
+        optimizer, T_max=total_steps - warmup_steps, eta_min=config.learning_rate * 0.01
     )
-    args = parser.parse_args()
+    scheduler = SequentialLR(
+        optimizer, [warmup_lr, cosine_lr], milestones=[warmup_steps]
+    )
 
-    try:
-        config = load_training_config(args.config)
-        print("Config loaded and validated successfully:")
-        print(config)
-    except (ValueError, FileNotFoundError) as e:
-        print(f"Error loading config: {e}")
+    return model, loss_fn, optimizer, scheduler

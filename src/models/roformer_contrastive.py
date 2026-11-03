@@ -133,7 +133,7 @@ class RoFormerTimeContrastiveModel(Module):
         return pooled, projection
 
 
-@register(MODELS, "roformer_time_domain_adversial_contrastive")
+@register(MODELS, "roformer_time_dann_contrastive")
 class RoFormerTimeDomainAdversialContrastiveModel(RoFormerTimeContrastiveModel):
     def __init__(self, *, num_subjects: int, **kwargs):
         """Same as RoFormerTimeContrastiveModel, plus a gradient-reversal
