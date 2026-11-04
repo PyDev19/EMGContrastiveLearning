@@ -163,7 +163,7 @@ def build_dataloaders(
         train_dataset = DATASETS[config.dataset.name](
             data_dir=data_dir,
             patient_ids=train_patients,
-            normalizer=NORMALIZERS[config.normalizer],
+            normalizer=NORMALIZERS[config.normalizer](),
             augmentations=augmentations,
             **asdict(config.dataset.args),
         )
@@ -179,7 +179,7 @@ def build_dataloaders(
         train_dataset = DATASETS[config.dataset.name](
             data_dir=data_dir,
             patient_ids=train_patients,
-            normalizer=NORMALIZERS[config.normalizer],
+            normalizer=NORMALIZERS[config.normalizer](),
             augmentations=augmentations,
             **asdict(config.dataset.args),
         )
@@ -187,7 +187,7 @@ def build_dataloaders(
         test_dataset = DATASETS[config.dataset.name](
             data_dir=data_dir,
             patient_ids=test_patients,
-            normalizer=NORMALIZERS[config.normalizer],
+            normalizer=NORMALIZERS[config.normalizer](),
             augmentations=augmentations,
             **asdict(config.dataset.args),
         )
