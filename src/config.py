@@ -53,13 +53,13 @@ class DatasetConfig:
 @dataclass
 class ModelConfig:
     name: ModelName
-    args: dict[str, any]
+    args: dict
 
 
 @dataclass
 class LossConfig:
     name: LossName
-    args: dict[str, any]
+    args: dict
 
 
 @dataclass

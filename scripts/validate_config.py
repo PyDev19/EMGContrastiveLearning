@@ -122,3 +122,7 @@ def main():
 
     config = check_train_config(args.config)
     print(f"\n{config}")
+
+
+if __name__ == "__main__":
+    main()
