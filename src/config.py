@@ -109,7 +109,7 @@ DATASET_TO_PATINETS: dict[DatasetName, list[int]] = {"physiomio": list(range(1, 
 
 
 def load_train_config(
-    config_path: str, overrides: list[str] | None = None
+    config_path: str, overrides: list[str] | dict[str, any] | None = None
 ) -> TrainConfig:
     """Load a training config from YAML and validate it against `TrainConfig`.
 
@@ -126,7 +126,11 @@ def load_train_config(
         omegaconf.errors.ValidationError: a field has the wrong type.
     """
     sources = [OmegaConf.structured(TrainConfig), OmegaConf.load(config_path)]
-    if overrides:
+    if isinstance(overrides, dict):
+        sources.append(
+            OmegaConf.from_dotlist([f"{k}={v}" for k, v in overrides.items()])
+        )
+    elif overrides:
         sources.append(OmegaConf.from_dotlist(overrides))
 
     merged = OmegaConf.merge(*sources)
@@ -226,9 +230,12 @@ def build_model_loss_optimizer_scheduler(
     config: TrainConfig, steps_per_epoch: int, train_patients: list[int] | None = None
 ):
     if "dann" in config.model.name:
-        model = MODELS[config.model.name](
-            num_subjects=train_patients, **config.model.args
-        )
+        if train_patients:
+            model = MODELS[config.model.name](
+                num_subjects=len(train_patients), **config.model.args
+            )
+        else:
+            raise ValueError("number of train subjects must be provided for DANN model")
     else:
         model = MODELS[config.model.name](**config.model.args)
 

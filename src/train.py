@@ -7,9 +7,8 @@ import wandb
 
 from src.config import (
     build_dataloaders,
-    build_loss,
-    build_model_optimizer_scheduler,
-    load_training_config,
+    build_model_loss_optimizer_scheduler,
+    load_train_config,
 )
 from src.contrastive_trainer import TimeContrastiveTrainer
 
@@ -24,15 +23,18 @@ def main():
     parser.add_argument("--config", type=str, required=True)
     args, _unknown = parser.parse_known_args()
 
-    base = load_training_config(args.config)
+    base = load_train_config(args.config)
     run = wandb.init(entity=base.wandb.entity, project=base.wandb.project)
 
-    config = load_training_config(args.config, overrides=dict(run.config))
+    config = load_train_config(args.config, overrides=dict(run.config))
     run.name = f"{config.task}_{config.model.name}_{run.id}"
 
-    train_dataloader, test_dataloader = build_dataloaders(config, args.data_dir)
-    model, optimizer, scheduler = build_model_optimizer_scheduler(config)
-    loss_fn = build_loss(config)
+    train_dataloader, test_dataloader, train_patients = build_dataloaders(
+        config, args.data_dir
+    )
+    model, loss_fn, optimizer, scheduler = build_model_loss_optimizer_scheduler(
+        config, steps_per_epoch=len(train_dataloader), train_patients=train_patients
+    )
 
     match config.task:
         case "time_contrastive":
