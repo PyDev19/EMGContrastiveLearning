@@ -151,7 +151,6 @@ class BaseContrastiveTrainer(ABC):
                 metrics[f"linear_probe/{name}/f1_{label}"] = m["f1-score"]
             metrics[f"linear_probe/{name}/macro_f1"] = report["macro avg"]["f1-score"]  # pyright: ignore[reportArgumentType]
 
-
         lr_classifier.fit(train_h, train_subjects)
         knn_classifier.fit(train_h, train_subjects)
 
@@ -197,6 +196,23 @@ class BaseContrastiveTrainer(ABC):
             "train/grad_norm_max": self.grad_norm_max.item(),
         }
 
+    @torch.no_grad
+    def _calculate_similarity_stats(self, z: torch.Tensor, labels: torch.Tensor):
+        z = torch.nn.functional.normalize(z.float(), dim=-1)
+        labels.view(-1)
+        sim_scores = z @ z.mT
+
+        off_diag = ~torch.eye(len(z), dtype=torch.bool, device=z.device)
+        same = (labels[:, None] == labels[None, :]) & off_diag
+        diff = labels[:, None] != labels[None, :]
+
+        mean_offdiag = sim_scores[off_diag].mean()
+        mean_same = sim_scores[same].mean()
+        mean_diff = sim_scores[diff].mean()
+        mean_std = z.std(dim=0).mean()
+
+        return mean_offdiag, mean_same, mean_diff, mean_std
+
     @abstractmethod
     def _train_epoch(self) -> dict[str, float]: ...
 
@@ -238,7 +254,7 @@ class TimeContrastiveTrainer(BaseContrastiveTrainer):
             labels = labels.to(self.device)
 
             with autocast(device_type=self.device.type, dtype=torch.bfloat16):
-                _, z = self.model(emg)
+                h, z = self.model(emg)
                 _, z_aug = self.model(emg_aug)
 
             g_loss = self.loss_fn(z.float(), labels, z_aug=z_aug.float())
@@ -248,7 +264,24 @@ class TimeContrastiveTrainer(BaseContrastiveTrainer):
             g_loss_sum += g_loss.detach() * batch_size
             num_samples += batch_size
 
-        return {"train/gesture_loss": (g_loss_sum / num_samples).item()}
+        proj_mean_offdiag, proj_mean_same, proj_mean_diff, proj_mean_std = (
+            self._calculate_similarity_stats(z, labels)
+        )
+        pooled_mean_offdiag, pooled_mean_same, pooled_mean_diff, pooled_mean_std = (
+            self._calculate_similarity_stats(h, labels)
+        )
+
+        return {
+            "train/gesture_loss": (g_loss_sum / num_samples).item(),
+            "train/proj_mean_offdiag": proj_mean_offdiag,
+            "train/proj_mean_same": proj_mean_same,
+            "train/proj_mean_diff": proj_mean_diff,
+            "train/proj_mean_std": proj_mean_std,
+            "train/pooled_mean_offdiag": pooled_mean_offdiag,
+            "train/pooled_mean_same": pooled_mean_same,
+            "train/pooled_mean_diff": pooled_mean_diff,
+            "train/pooled_mean_std": pooled_mean_std,
+        }
 
     @torch.no_grad()
     def _eval_epoch(self):
@@ -276,6 +309,13 @@ class TimeContrastiveTrainer(BaseContrastiveTrainer):
             labels_arr.append(labels.numpy())
             subjects_arr.append(subjects.numpy())
 
+        proj_mean_offdiag, proj_mean_same, proj_mean_diff, proj_mean_std = (
+            self._calculate_similarity_stats(z, labels_gpu)
+        )
+        pooled_mean_offdiag, pooled_mean_same, pooled_mean_diff, pooled_mean_std = (
+            self._calculate_similarity_stats(h, labels_gpu)
+        )
+
         h_arr = np.concatenate(h_arr, axis=0)
         labels_arr = np.concatenate(labels_arr, axis=0)
         subjects_arr = np.concatenate(subjects_arr, axis=0)
@@ -292,5 +332,13 @@ class TimeContrastiveTrainer(BaseContrastiveTrainer):
         return {
             "test/gesture_loss": (loss_sum / num_samples).item(),
             "test/gesture_silhouette_score": gesture_silhouette_score,
-            "test/subject_silhouette_score": subject_silhouette_score
+            "test/subject_silhouette_score": subject_silhouette_score,
+            "test/proj_mean_offdiag": proj_mean_offdiag,
+            "test/proj_mean_same": proj_mean_same,
+            "test/proj_mean_diff": proj_mean_diff,
+            "test/proj_mean_std": proj_mean_std,
+            "test/pooled_mean_offdiag": pooled_mean_offdiag,
+            "test/pooled_mean_same": pooled_mean_same,
+            "test/pooled_mean_diff": pooled_mean_diff,
+            "test/pooled_mean_std": pooled_mean_std,
         }
