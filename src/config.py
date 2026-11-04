@@ -164,6 +164,7 @@ def build_dataloaders(
             data_dir=data_dir,
             patient_ids=train_patients,
             normalizer=NORMALIZERS[config.normalizer](),
+            normalizer_scope=config.normalizer_scope,
             augmentations=augmentations,
             **asdict(config.dataset.args),
         )
@@ -172,6 +173,7 @@ def build_dataloaders(
             data_dir=data_dir,
             patient_ids=test_patients,
             normalizer=train_dataset.normalizer,
+            normalizer_scope=config.normalizer_scope,
             augmentations=augmentations,
             **asdict(config.dataset.args),
         )
@@ -180,6 +182,7 @@ def build_dataloaders(
             data_dir=data_dir,
             patient_ids=train_patients,
             normalizer=NORMALIZERS[config.normalizer](),
+            normalizer_scope=config.normalizer_scope,
             augmentations=augmentations,
             **asdict(config.dataset.args),
         )
@@ -188,6 +191,7 @@ def build_dataloaders(
             data_dir=data_dir,
             patient_ids=test_patients,
             normalizer=NORMALIZERS[config.normalizer](),
+            normalizer_scope=config.normalizer_scope,
             augmentations=augmentations,
             **asdict(config.dataset.args),
         )
