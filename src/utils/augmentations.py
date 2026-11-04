@@ -32,7 +32,7 @@ class Augmentations:
         self.channel_dropout_prob = channel_dropout_prob
 
     def jitter(self, emg_window: torch.Tensor) -> torch.Tensor:
-        """Add random Gaussian noise to the input EMG window.
+        """Add random Gaussian noise to the input EMG window that is scaled to the window's std.
 
         Args:
             emg_window (torch.Tensor): The input EMG window, with shape (channel_dim, sequence_length).
@@ -40,12 +40,12 @@ class Augmentations:
         Returns:
             torch.Tensor: The jittered EMG window, with the same shape as the input.
         """
-
-        noise = torch.randn_like(emg_window) * self.jitter_sigma
+        std = emg_window.std(dim=-1, keepdim=True)
+        noise = torch.randn_like(emg_window) * self.jitter_sigma * std
         return emg_window + noise
 
     def scale(self, emg_window: torch.Tensor) -> torch.Tensor:
-        """Scales the EMG window
+        """Scales the EMG window independently per channel via log-normal gain
 
         Args:
             emg_window (torch.Tensor): The input EMG window, with shape (channel_dim, sequence_length).
@@ -53,8 +53,9 @@ class Augmentations:
         Returns:
             torch.Tensor: The scaled EMG window, with the same shape as the input.
         """
-        factor = torch.normal(mean=1.0, std=self.scale_sigma, size=emg_window.shape)
-        return emg_window * factor
+        C = emg_window.shape[0]
+        gain = torch.exp(torch.randn(C, 1) * self.scale_sigma)
+        return emg_window * gain
 
     def channel_dropout(self, emg_window: torch.Tensor) -> torch.Tensor:
         """Randomly zero out entire channels for the full signal duration, simulating
