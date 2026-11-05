@@ -5,7 +5,12 @@ import torch
 import wandb
 from sklearn.linear_model import LogisticRegression
 from sklearn.manifold import TSNE
-from sklearn.metrics import classification_report, silhouette_score
+from sklearn.metrics import (
+    accuracy_score,
+    classification_report,
+    f1_score,
+    silhouette_score,
+)
 from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
 from torch.amp import autocast
@@ -151,27 +156,38 @@ class BaseContrastiveTrainer(ABC):
                 metrics[f"linear_probe/{name}/f1_{label}"] = m["f1-score"]
             metrics[f"linear_probe/{name}/macro_f1"] = report["macro avg"]["f1-score"]  # pyright: ignore[reportArgumentType]
 
-        lr_classifier.fit(train_h, train_subjects)
-        knn_classifier.fit(train_h, train_subjects)
-
-        lr_preds = lr_classifier.predict(self.pooled_embeddings)
-        knn_preds = knn_classifier.predict(self.pooled_embeddings)
-
-        lr_report = classification_report(
-            self.pooled_subjects, lr_preds, output_dict=True
-        )
-        knn_report = classification_report(
-            self.pooled_subjects, knn_preds, output_dict=True
-        )
-
-        for name, report in [("logreg", lr_report), ("knn", knn_report)]:
-            for label, m in report.items():  # pyright: ignore[reportAttributeAccessIssue]
-                if label in ("accuracy", "macro avg", "weighted avg"):
-                    continue
-                metrics[f"subject_probe/{name}/f1_{label}"] = m["f1-score"]
-            metrics[f"subject_probe/{name}/macro_f1"] = report["macro avg"]["f1-score"]  # pyright: ignore[reportArgumentType]
-
         return metrics
+
+    def _subject_probe(self):
+        train_mask = (self.pooled_labels % 2) == 0  # pyright: ignore[reportOptionalOperand]
+        test_mask = ~train_mask
+
+        lr_accuracy, lr_f1 = [], []
+        knn_accuracy, knn_f1 = [], []
+        metrics: dict[str, float] = {}
+
+        for mask in (train_mask, test_mask):
+            lr_classifier = LogisticRegression(max_iter=1000, solver="lbfgs")
+            lr_classifier.fit(self.pooled_embeddings[mask], self.pooled_subjects[mask])
+            lr_preds = lr_classifier.predict(self.pooled_embeddings[~mask])
+
+            knn_classifier = KNeighborsClassifier(n_neighbors=20)
+            knn_classifier.fit(self.pooled_embeddings[mask], self.pooled_subjects[mask])
+            knn_preds = knn_classifier.predict(self.pooled_embeddings[~mask])
+
+            lr_accuracy.append(accuracy_score(self.pooled_subjects[~mask], lr_preds))
+            lr_f1.append(
+                f1_score(self.pooled_subjects[~mask], lr_preds, average="macro")
+            )
+            knn_accuracy.append(accuracy_score(self.pooled_subjects[~mask], knn_preds))
+            knn_f1.append(
+                f1_score(self.pooled_subjects[~mask], knn_preds, average="macro")
+            )
+
+        metrics["subject_probe/logreg/accuracy"] = float(np.mean(lr_accuracy))
+        metrics["subject_probe/logreg/macro_f1"] = float(np.mean(lr_f1))
+        metrics["subject_probe/knn/accuracy"] = float(np.mean(knn_accuracy))
+        metrics["subject_probe/knn/macro_f1"] = float(np.mean(knn_f1))
 
     def _backward(self, loss: torch.Tensor, i: int) -> None:
         (loss / self.config.accumulation_steps).backward()
@@ -196,10 +212,15 @@ class BaseContrastiveTrainer(ABC):
             "train/grad_norm_max": self.grad_norm_max.item(),
         }
 
-    @torch.no_grad
+    def _reset_grad_stats(self):
+        self.grad_norm_sum = torch.zeros((), device=self.device)
+        self.grad_norm_max = torch.zeros((), device=self.device)
+        self.num_updates = 0
+
+    @torch.no_grad()
     def _calculate_similarity_stats(self, z: torch.Tensor, labels: torch.Tensor):
         z = torch.nn.functional.normalize(z.float(), dim=-1)
-        labels.view(-1)
+        labels = labels.view(-1)
         sim_scores = z @ z.mT
 
         off_diag = ~torch.eye(len(z), dtype=torch.bool, device=z.device)
@@ -222,6 +243,8 @@ class BaseContrastiveTrainer(ABC):
     def train(self):
         for epoch in range(1, self.config.num_epochs + 1):
             self.epoch = epoch
+
+            self._reset_grad_stats()
 
             self.run.log(self._train_epoch(), step=epoch)
             self.run.log(self._grad_metrics(), step=epoch)
