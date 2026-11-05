@@ -17,7 +17,9 @@ from src.utils.types import NormalizerScopeName, WindowIndex, WindowOpts
 
 @register(SAMPLERS, "physiomio")
 class PhysioMioTrialBatchSampler(Sampler[list[int]]):
-    def __init__(self, window_indices: list[WindowIndex], shuffle: bool = True, seed: int = 42):
+    def __init__(
+        self, window_indices: list[WindowIndex], shuffle: bool = True, seed: int = 42
+    ):
         self.shuffle = shuffle
         self.rng = random.Random(seed)
 
@@ -29,6 +31,10 @@ class PhysioMioTrialBatchSampler(Sampler[list[int]]):
         self.trial_windows = [trial_to_windows[t] for t in self.trials]
 
         self.windows_per_trial = min(len(windows) for windows in self.trial_windows)
+        if max(len(windows) for windows in self.trial_windows) > self.windows_per_trial:
+            print(
+                f"Truncating {max(len(windows) for windows in self.trial_windows) - self.windows_per_trial} windows"
+            )
 
     def __len__(self):
         return self.windows_per_trial
