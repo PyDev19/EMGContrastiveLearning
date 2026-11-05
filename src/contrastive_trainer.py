@@ -52,6 +52,10 @@ class BaseContrastiveTrainer(ABC):
         self.pooled_labels: np.ndarray | None = None
         self.pooled_subjects: np.ndarray | None = None
 
+        self.test_embeddings: np.ndarray | None = None
+        self.test_labels: np.ndarray | None = None
+        self.test_subjects: np.ndarray | None = None
+
         self.epoch = 0
 
         self.grad_norm_sum = torch.zeros((), device=self.device)
@@ -138,14 +142,12 @@ class BaseContrastiveTrainer(ABC):
         knn_classifier = KNeighborsClassifier(n_neighbors=20)
         knn_classifier.fit(train_h, train_labels)
 
-        lr_preds = lr_classifier.predict(self.pooled_embeddings)
-        knn_preds = knn_classifier.predict(self.pooled_embeddings)
+        lr_preds = lr_classifier.predict(self.test_embeddings)
+        knn_preds = knn_classifier.predict(self.test_embeddings)
 
-        lr_report = classification_report(
-            self.pooled_labels, lr_preds, output_dict=True
-        )
+        lr_report = classification_report(self.test_labels, lr_preds, output_dict=True)
         knn_report = classification_report(
-            self.pooled_labels, knn_preds, output_dict=True
+            self.test_labels, knn_preds, output_dict=True
         )
 
         metrics: dict[str, float] = {}
@@ -159,7 +161,7 @@ class BaseContrastiveTrainer(ABC):
         return metrics
 
     def _subject_probe(self):
-        train_mask = (self.pooled_labels % 2) == 0  # pyright: ignore[reportOptionalOperand]
+        train_mask = (self.test_labels % 2) == 0  # pyright: ignore[reportOptionalOperand]
         test_mask = ~train_mask
 
         lr_accuracy, lr_f1 = [], []
@@ -168,26 +170,26 @@ class BaseContrastiveTrainer(ABC):
 
         for mask in (train_mask, test_mask):
             lr_classifier = LogisticRegression(max_iter=1000, solver="lbfgs")
-            lr_classifier.fit(self.pooled_embeddings[mask], self.pooled_subjects[mask])
-            lr_preds = lr_classifier.predict(self.pooled_embeddings[~mask])
+            lr_classifier.fit(self.test_embeddings[mask], self.test_subjects[mask])
+            lr_preds = lr_classifier.predict(self.test_embeddings[~mask])
 
             knn_classifier = KNeighborsClassifier(n_neighbors=20)
-            knn_classifier.fit(self.pooled_embeddings[mask], self.pooled_subjects[mask])
-            knn_preds = knn_classifier.predict(self.pooled_embeddings[~mask])
+            knn_classifier.fit(self.test_embeddings[mask], self.test_subjects[mask])
+            knn_preds = knn_classifier.predict(self.test_embeddings[~mask])
 
-            lr_accuracy.append(accuracy_score(self.pooled_subjects[~mask], lr_preds))
-            lr_f1.append(
-                f1_score(self.pooled_subjects[~mask], lr_preds, average="macro")
-            )
-            knn_accuracy.append(accuracy_score(self.pooled_subjects[~mask], knn_preds))
+            lr_accuracy.append(accuracy_score(self.test_subjects[~mask], lr_preds))
+            lr_f1.append(f1_score(self.test_subjects[~mask], lr_preds, average="macro"))
+            knn_accuracy.append(accuracy_score(self.test_subjects[~mask], knn_preds))
             knn_f1.append(
-                f1_score(self.pooled_subjects[~mask], knn_preds, average="macro")
+                f1_score(self.test_subjects[~mask], knn_preds, average="macro")
             )
 
         metrics["subject_probe/logreg/accuracy"] = float(np.mean(lr_accuracy))
         metrics["subject_probe/logreg/macro_f1"] = float(np.mean(lr_f1))
         metrics["subject_probe/knn/accuracy"] = float(np.mean(knn_accuracy))
         metrics["subject_probe/knn/macro_f1"] = float(np.mean(knn_f1))
+
+        return metrics
 
     def _backward(self, loss: torch.Tensor, i: int) -> None:
         (loss / self.config.accumulation_steps).backward()
@@ -258,6 +260,7 @@ class BaseContrastiveTrainer(ABC):
 
             if epoch % self.config.linear_probe_freq == 0:
                 self.run.log(self._linear_probe(), step=epoch)
+                self.run.log(self._subject_probe(), step=epoch)
 
         self.run.finish()
 
@@ -349,8 +352,14 @@ class TimeContrastiveTrainer(BaseContrastiveTrainer):
         subject_silhouette_score = float(
             silhouette_score(h_arr, subjects_arr, metric="cosine")
         )
-
-        self._stratified_subsample(h_arr, labels_arr, subjects_arr)
+        
+        if self.epoch % self.config.embeddings_log_freq == 0:
+            self._stratified_subsample(h_arr, labels_arr, subjects_arr)
+        
+        if self.epoch % self.config.linear_probe_freq == 0:
+            self.test_embeddings = h_arr
+            self.test_labels = labels_arr
+            self.test_subjects = subjects_arr
 
         return {
             "test/gesture_loss": (loss_sum / num_samples).item(),
