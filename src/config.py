@@ -202,7 +202,8 @@ def build_dataloaders(
         )
 
         test_sampler = SAMPLERS[config.dataset.name](
-            window_indices=test_dataset.window_indices
+            window_indices=test_dataset.window_indices,
+            shuffle=False
         )
 
         train_dataloader = DataLoader(
@@ -222,7 +223,7 @@ def build_dataloaders(
         test_dataloader = DataLoader(
             test_dataset,
             batch_size=config.batch_size,
-            shuffle=True,
+            shuffle=False,
             pin_memory=True,
             num_workers=4,
         )

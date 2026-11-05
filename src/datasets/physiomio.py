@@ -17,7 +17,8 @@ from src.utils.types import NormalizerScopeName, WindowIndex, WindowOpts
 
 @register(SAMPLERS, "physiomio")
 class PhysioMioTrialBatchSampler(Sampler[list[int]]):
-    def __init__(self, window_indices: list[WindowIndex], seed: int = 42):
+    def __init__(self, window_indices: list[WindowIndex], shuffle: bool = True, seed: int = 42):
+        self.shuffle = shuffle
         self.rng = random.Random(seed)
 
         trial_to_windows = defaultdict(list)
@@ -35,9 +36,12 @@ class PhysioMioTrialBatchSampler(Sampler[list[int]]):
     def __iter__(self):
         orders = []
         for windows in self.trial_windows:
-            perm = windows[:]
-            self.rng.shuffle(perm)
-            orders.append(perm)
+            if self.shuffle:
+                perm = windows[:]
+                self.rng.shuffle(perm)
+                orders.append(perm)
+            else:
+                orders.append(windows)
 
         for i in range(self.windows_per_trial):
             yield [order[i] for order in orders]
