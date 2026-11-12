@@ -1,4 +1,5 @@
 import argparse
+import json
 import pathlib
 
 import numpy as np
@@ -11,6 +12,19 @@ from src.config import (
     load_train_config,
 )
 from src.contrastive_trainer import TimeContrastiveTrainer
+
+
+def flatten_overrides(d: dict, prefix: str = "") -> list[str]:
+    out = []
+    for k, v in d.items():
+        if k.startswith("_"):  # wandb internals
+            continue
+        key = f"{prefix}{k}"
+        if isinstance(v, dict):
+            out += flatten_overrides(v, key + ".")
+        else:
+            out.append(f"{key}={json.dumps(v)}")
+    return out
 
 
 def main():
@@ -26,7 +40,9 @@ def main():
     base = load_train_config(args.config)
     run = wandb.init(entity=base.wandb.entity, project=base.wandb.project)
 
-    config = load_train_config(args.config, overrides=dict(run.config))
+    config = load_train_config(
+        args.config, overrides=flatten_overrides(dict(run.config))
+    )
     run.name = f"{config.task}_{config.model.name}_{run.id}"
 
     train_dataloader, test_dataloader, train_patients = build_dataloaders(

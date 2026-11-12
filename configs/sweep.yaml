@@ -1,27 +1,32 @@
-program: src.train
 method: bayes
 metric:
-    name: linear_probe/logreg/macro_f1
+    name: linear_probe/knn/macro_f1
     goal: maximize
-
 command:
+    - ${env}
     - python
     - -m
-    - ${program}
-    - --data-dir=/scratch/juno/axm240143/blueprint_data/both_ungrouped_include_fma_zero
-    - --config=./configs/time_roformer_contrastive.yaml
-    - ${args}
-
+    - src.train
+    - --data-dir
+    - /path/to/blueprint_data/both_ungrouped_include_fma_zero
+    - --config
+    - configs/base.yaml
 parameters:
-    optimizer.learning_rate:
-        distribution: log_uniform_values
-        min: 1.0e-5
-        max: 1.0e-3
-    optimizer.weight_decay:
-        distribution: log_uniform_values
-        min: 1.0e-4
-        max: 1.0e-1
-    loss.temperature:
-        values: [0.05, 0.07, 0.1, 0.2]
-    accumulation_steps:
-        values: [1, 2, 4, 8]
+    num_epochs: { value: 60 }
+    embeddings_log_freq: { value: 60 }
+    linear_probe_freq: { value: 10 }
+    learning_rate:
+        { distribution: log_uniform_values, min: 1.0e-4, max: 2.0e-3 }
+    weight_decay: { values: [0.01, 0.05, 0.1] }
+    loss:
+        parameters:
+            args:
+                parameters:
+                    temperature: { values: [0.05, 0.07, 0.1, 0.2] }
+    model:
+        parameters:
+            args:
+                parameters:
+                    num_layers: { values: [2, 4, 6] }
+                    drop_path_prob: { values: [0.0, 0.1, 0.2] }
+                    pool_drop_prob: { values: [0.0, 0.1] }
