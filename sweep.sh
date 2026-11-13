@@ -24,4 +24,4 @@ mkdir -p "$WANDB_DIR"
 
 sleep $((SLURM_ARRAY_TASK_ID * 10))
 
-wandb agent --count 1 "$SWEEP_PATH"
+wandb agent --count 1 "$1"
