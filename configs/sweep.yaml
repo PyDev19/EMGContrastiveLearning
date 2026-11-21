@@ -9,7 +9,7 @@ command:
     - -m
     - ${program}
     - --data-dir
-    - /path/to/blueprint_data/both_ungrouped_include_fma_zero
+    - /scratch/juno/axm240143/blueprint_data/both_ungrouped_include_fma_zero/
     - --config
     - configs/time_roformer_contrastive.yaml
 parameters:
